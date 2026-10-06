@@ -14,6 +14,48 @@ import { replaceIcon } from './pe.js'
 
 const enc = new TextEncoder()
 
+/**
+ * What every desktop game carries under resources/app -- build_app.sh's
+ * per-game half, shared by Linux, Windows and macOS (macos.js).
+ * Returns the number of module files added.
+ */
+export async function addGameTree ({ zip, mod, opts, APP, add, fromKit, platform }) {
+  const id = mod.id
+  // The engine's tree, without the studio unless asked.
+  for (const [name, e] of zip) {
+    if (!name.startsWith('app/')) continue
+    if (!opts.studio && name.startsWith('app/studio/')) continue
+    await fromKit(`${APP}/${name.slice(4)}`, e)
+  }
+  // The module, whole except the authoring sources (build_app.sh:
+  // cp -R, then find maps -name '*.map' -o -name '*.editor.json' -delete).
+  let n = 0
+  for (const [p, f] of mod.files) {
+    if (/^maps\/(.*\/)?[^/]*(\.map|\.editor\.json)$/.test(p)) continue
+    add(`${APP}/modules/${id}/${p}`, await f.read()); n++
+  }
+  // What this game IS (build_app.sh "what this app IS"), and the package
+  // Electron reads -- its name is also the user-data folder, so two games
+  // keep two sets of saves.
+  add(`${APP}/game.json`, enc.encode(JSON.stringify({
+    name: opts.label,
+    id,
+    modules: [id],
+    studio: !!opts.studio,
+    builtAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+    platform
+  }, null, 2) + '\n'))
+  add(`${APP}/package.json`, enc.encode(JSON.stringify({
+    name: id.toLowerCase(),
+    productName: opts.label,
+    version: opts.version || '1.0.0',
+    private: true,
+    type: 'module',
+    main: 'app/main.js'
+  }, null, 2) + '\n'))
+  return n
+}
+
 // THE LINUX SANDBOX. Chromium's renderer sandbox needs either a root-owned
 // setuid chrome-sandbox or unprivileged user namespaces. A downloaded archive
 // cannot carry setuid-root, and Ubuntu 24.04+ (AppArmor) and containers deny
@@ -107,38 +149,8 @@ export async function buildDesktop (kit, mod, opts, log = () => {}) {
     await fromKit(`${dir}/${rel === info.exe ? binary : rel}`, e)
   }
   if (info.kit === 'linux') add(`${dir}/${exe}`, enc.encode(linuxLauncher(binary)), 0o755)
-  // 2. The engine's tree, without the studio unless asked.
-  for (const [name, e] of zip) {
-    if (!name.startsWith('app/')) continue
-    if (!opts.studio && name.startsWith('app/studio/')) continue
-    await fromKit(`${APP}/${name.slice(4)}`, e)
-  }
-  // 3. The module, whole except the authoring sources (build_app.sh:
-  //    cp -R, then find maps -name '*.map' -o -name '*.editor.json' -delete).
-  let n = 0
-  for (const [p, f] of mod.files) {
-    if (/^maps\/(.*\/)?[^/]*(\.map|\.editor\.json)$/.test(p)) continue
-    add(`${APP}/modules/${id}/${p}`, await f.read()); n++
-  }
-  // 4. What this game IS (build_app.sh "what this app IS"), and the package
-  //    Electron reads -- its name is also the user-data folder, so two games
-  //    keep two sets of saves.
-  add(`${APP}/game.json`, enc.encode(JSON.stringify({
-    name: opts.label,
-    id,
-    modules: [id],
-    studio: !!opts.studio,
-    builtAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
-    platform: info.kit === 'windows' ? 'Windows-x86_64' : 'Linux-x86_64'
-  }, null, 2) + '\n'))
-  add(`${APP}/package.json`, enc.encode(JSON.stringify({
-    name: id.toLowerCase(),
-    productName: opts.label,
-    version: opts.version || '1.0.0',
-    private: true,
-    type: 'module',
-    main: 'app/main.js'
-  }, null, 2) + '\n'))
+  // 2-4. The engine's tree, the module, game.json and package.json.
+  const n = await addGameTree({ zip, mod, opts, APP, add, fromKit, platform: info.kit === 'windows' ? 'Windows-x86_64' : 'Linux-x86_64' })
   if (opts.iconFor && info.kit === 'linux') add(`${dir}/${exe}.png`, await opts.iconFor(512))
 
   log(`module ${id}: ${n} file(s), ${mod.maps.length} level(s); ${info.kit} x64, Electron ${info.electron}`)

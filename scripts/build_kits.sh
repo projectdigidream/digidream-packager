@@ -42,7 +42,7 @@ SERVERS="$HERE/build/servers"
 mkdir -p "$OUT" "$CACHE"
 
 WHICH=("$@")
-[[ ${#WHICH[@]} -eq 0 ]] && WHICH=(android linux windows)
+[[ ${#WHICH[@]} -eq 0 ]] && WHICH=(android linux windows macos-arm64 macos-x64)
 
 ENGINE_VERSION="$(tr -d '[:space:]' < "$ENGINE/VERSION" 2>/dev/null || echo unknown)"
 BUILT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -100,7 +100,9 @@ assert_clean() {
 # -D: no directory entries. Info-ZIP keeps each file's unix mode in the entry's
 # external attributes, which is how the desktop kits carry their executables'
 # x bits through to the packager (zip.js reads them back).
-pack() { rm -f "$2"; (cd "$1" && zip -qrD "$2" .); }
+# .DS_Store (Finder's, copied in by build_app.sh's cp -R) is left out of every
+# kit: it is junk in a game, and on macOS codesign's rules omit it from a seal.
+pack() { rm -f "${2:?}"; (cd "$1" && zip -qrD "$2" . -x '*.DS_Store'); }
 
 # --- android -------------------------------------------------------------------
 
@@ -265,10 +267,113 @@ EOF
   echo "[kit] $t  $OUT/$t.zip  ($(du -h "$OUT/$t.zip" | cut -f1), engine $ENGINE_VERSION, electron $ELECTRON)"
 }
 
+# --- macos ----------------------------------------------------------------------
+#
+# Built HERE, natively: this script runs on a Mac (codesign is Apple's). The
+# server for each arch is build_server.sh's, for macOS 12 and up (Electron 44
+# asks for 13); Intel's is cross-compiled with -arch x86_64 against a LuaJIT
+# built for x86-64, whose build tools run under Rosetta.
+#
+# SIGNING. Electron ships linker-signed only, which `codesign --verify --deep
+# --strict` rejects and Gatekeeper calls "damaged". Every NESTED piece (the
+# framework, the four helper apps, their libraries) is signed here, ad hoc,
+# by the real codesign -- none of it changes from game to game -- and their
+# cdhashes go into kit.json. The packager page then seals and signs only the
+# outer bundle, which is what each game changes (src/macos.js).
+
+MAC_MIN=12.0
+
+luajit_macos_x64() {
+  local d="${CACHE:?}/luajit-macos-x64"
+  if [[ -f "$d/src/libluajit.a" ]]; then echo "$d"; return; fi
+  rm -rf "${d:?}"; mkdir -p "$d"
+  (cd "$ENGINE/third_party/luajit" && tar --exclude='*.o' --exclude='*.a' --exclude='*.so' \
+     --exclude='src/luajit' --exclude='src/host/minilua' --exclude='src/host/buildvm' -cf - .) | tar -xf - -C "$d"
+  echo "[kit] macos-x64  luajit (x86-64, host tools under Rosetta)" >&2
+  MACOSX_DEPLOYMENT_TARGET=11.0 make -C "$d" -j8 amalg BUILDMODE=static \
+    HOST_CC="clang -arch x86_64" TARGET_FLAGS="-arch x86_64" >/dev/null 2>&1 ||
+    { echo "[kit] LuaJIT for x86-64 did not build (is Rosetta installed?)" >&2; exit 1; }
+  echo "$d"
+}
+
+kit_macos() {
+  local arch="$1" eplat ljdir="" archflag
+  [[ "$(uname -s)" == "Darwin" ]] || { echo "[kit] the macOS kits are built on a Mac" >&2; exit 2; }
+  case "$arch" in
+    arm64) eplat=darwin-arm64; archflag="-arch arm64" ;;
+    x64)   eplat=darwin-x64;   archflag="-arch x86_64"; ljdir="$(luajit_macos_x64)" ;;
+  esac
+  local t="macos-$arch"
+
+  echo "[kit] $t  server (native build_server.sh, macOS $MAC_MIN+)"
+  if [[ -n "$ljdir" ]]; then
+    DNP_LUAJIT_DIR="$ljdir" DNP_SERVER_OUT="$SERVERS/$t" DNP_SERVER_LDFLAGS="$archflag -mmacosx-version-min=$MAC_MIN" \
+      "$ENGINE/scripts/build_server.sh" | sed 's/^/        /'
+  else
+    DNP_SERVER_OUT="$SERVERS/$t" DNP_SERVER_LDFLAGS="$archflag -mmacosx-version-min=$MAC_MIN" \
+      "$ENGINE/scripts/build_server.sh" | sed 's/^/        /'
+  fi
+
+  # The golden trace, built the gate's way for this arch and minimum, run here
+  # (x86-64 under Rosetta), must be the host's native one.
+  host_trace
+  (ROOT="$ENGINE"; eval "$(grep -E '^(FLAGS|SRCS)=\(' "$ENGINE/scripts/check_determinism.sh")"
+   clang++ "${FLAGS[@]}" $archflag -mmacosx-version-min=$MAC_MIN "${SRCS[@]}" -o "$SERVERS/$t/golden_trace")
+  { "$SERVERS/$t/golden_trace" --chunks; "$SERVERS/$t/golden_trace" "${TICKS:-10000}"; } > "$CACHE/trace_$t.txt"
+  cmp -s "$HOST_TRACE" "$CACHE/trace_$t.txt" || { echo "[kit] $t: the golden trace DIFFERS from native -- refusing the kit" >&2; exit 1; }
+  echo "[kit] $t  determinism: $(wc -l < "$HOST_TRACE" | tr -d ' ') trace lines identical to native $(uname -m)"
+
+  local ezip; ezip="$(electron_zip "$eplat")"
+  make_tmpmod
+  local stage="${OUT:?}/${t:?}.stage"
+  rm -rf "${stage:?}"; mkdir -p "$stage/runtime"
+  echo "[kit] $t  running engine/scripts/build_app.sh"
+  "$ENGINE/scripts/build_app.sh" --module "$TMPMOD" --studio --out "$stage/staging" | grep -E '^\[app\] (staged|NO )' | sed 's/^/        /'
+  mv "$stage/staging/$TMPMOD" "$stage/app"
+  rm -rf "${stage:?}/staging" "${stage:?}/app/modules" "${stage:?}/app/game.json" "${stage:?}/app/package.json" \
+         "${stage:?}/app/node_modules" "${stage:?}/app/bin"
+  mkdir -p "$stage/app/bin"; cp "$SERVERS/$t/dnp-server" "$stage/app/bin/"; chmod 755 "$stage/app/bin/dnp-server"
+  assert_clean "$stage"
+  drop_tmpmod
+
+  ditto -x -k "$ezip" "$stage/runtime"
+  local A="$stage/runtime/Electron.app"
+  rm -f "${A:?}/Contents/Resources/default_app.asar"
+  echo "[kit] $t  signing the nested bundles ad hoc (codesign)"
+  codesign -s - -f --deep "$A" 2>&1 | grep -v 'replacing existing signature' | sed 's/^/        /' || true
+  local nested="" b cd
+  for b in "$A/Contents/Frameworks/"*; do
+    cd="$(codesign -dvvv "$b" 2>&1 | sed -n 's/^CDHash=//p')"
+    [[ ${#cd} -eq 40 ]] || { echo "[kit] no cdhash for $b" >&2; exit 1; }
+    [[ -n "$nested" ]] && nested+=", "
+    nested+="{ \"path\": \"Frameworks/$(basename "$b")\", \"cdhash\": \"$cd\" }"
+  done
+
+  cat > "$stage/kit.json" <<EOF
+{
+  "kit": "macos",
+  "engine": "$ENGINE_VERSION",
+  "built": "$BUILT",
+  "arch": "$arch",
+  "electron": "$ELECTRON",
+  "bundle": "runtime/Electron.app",
+  "server": "app/bin/dnp-server",
+  "nested": [$nested],
+  "files": $(list_files "$stage" | json_list)
+}
+EOF
+  # -y: symlinks stay symlinks (a framework is made of them).
+  rm -f "${OUT:?}/${t:?}.zip"; (cd "$stage" && zip -qryD "$OUT/$t.zip" . -x '*.DS_Store')
+  rm -rf "${stage:?}"
+  echo "[kit] $t  $OUT/$t.zip  ($(du -h "$OUT/$t.zip" | cut -f1), engine $ENGINE_VERSION, electron $ELECTRON)"
+}
+
 for k in "${WHICH[@]}"; do
   case "$k" in
     android) kit_android ;;
     linux|windows) kit_desktop "$k" ;;
-    *) echo "[kit] unknown kit: $k (known: android linux windows)" >&2; exit 2 ;;
+    macos-arm64) kit_macos arm64 ;;
+    macos-x64) kit_macos x64 ;;
+    *) echo "[kit] unknown kit: $k (known: android linux windows macos-arm64 macos-x64)" >&2; exit 2 ;;
   esac
 done

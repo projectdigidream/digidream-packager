@@ -64,3 +64,28 @@ export async function squareIcon (file, size) {
   const blob = await c.convertToBlob({ type: 'image/png' })
   return new Uint8Array(await blob.arrayBuffer())
 }
+
+/**
+ * A macOS icon of `size` px, on Apple's grid since Big Sur: the picture fills a
+ * rounded square of 824/1024 of the canvas, centred, corner radius 22.37% of
+ * that square; the margin stays transparent. (macOS does not mask app icons,
+ * so the shape is drawn here.) Needs a browser.
+ */
+export async function macIcon (file, size) {
+  const img = await createImageBitmap(file)
+  const c = new OffscreenCanvas(size, size)
+  const g = c.getContext('2d')
+  const box = size * 824 / 1024
+  const x0 = (size - box) / 2
+  const r = box * 0.2237
+  g.beginPath()
+  g.roundRect(x0, x0, box, box, r)
+  g.clip()
+  const k = Math.max(box / img.width, box / img.height) // cover
+  const w = img.width * k
+  const h = img.height * k
+  g.imageSmoothingQuality = 'high'
+  g.drawImage(img, x0 + (box - w) / 2, x0 + (box - h) / 2, w, h)
+  const blob = await c.convertToBlob({ type: 'image/png' })
+  return new Uint8Array(await blob.arrayBuffer())
+}

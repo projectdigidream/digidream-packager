@@ -14,7 +14,7 @@ packager/scripts/build_kits.sh              # once per engine version, on a dev 
 | Android | a signed APK, arm64 | **works**, verified on the emulator |
 | Linux | `<Name>-linux-x64.tar.gz`: unpack, run `./<id>` | **works**, verified running in a container |
 | Windows | `<Name>-windows-x64.zip`: unpack, run `<Name>.exe` | **built and partly verified**; the app has not been run on real Windows (see below) |
-| macOS | | last |
+| macOS | `<Name>-macos-arm64.zip` / `-x64.zip`: `<Name>.app`, sealed and signed ad hoc | **works**, verified on this Mac (Apple silicon); Intel server verified under Rosetta |
 | iOS | | later |
 
 ## How it can need no SDK: kits
@@ -74,9 +74,48 @@ prediction makes a game that rubber-bands, and nothing tells you why.
 The Electron runtime is downloaded once per version (44.4.5, the one
 `build_app.sh` resolves) and checked against the release's `SHASUMS256.txt`.
 
+### macOS: sealed and signed in the page
+
+On Apple Silicon every executable must be signed. A downloaded app is also
+judged as a **bundle**: its main executable's signature must bind
+`Info.plist` and a seal of every resource (`_CodeSignature/CodeResources`).
+
+Electron ships linker-signed only. `codesign --verify --deep --strict` rejects
+it as it comes ("code has no resources but signature indicates they must be
+present"), and Gatekeeper calls such a download **damaged**, with no way past
+that short of a terminal. A game also edits `Info.plist` and adds its own
+files in any case. So:
+
+- **The kit** has every nested piece signed ad hoc by the real `codesign`, on
+  the Mac that builds it: the framework, the four helper apps and their
+  libraries. Their cdhashes go into `kit.json`. None of that changes from game
+  to game.
+- **The page** handles the outer bundle:
+  - it edits `Info.plist`: name, bundle id, version, the games category, and
+    the integrity entry for the removed `default_app.asar` dropped;
+  - it writes the seal (`src/macos.js`);
+  - it signs the main executable ad hoc (`src/macho.js`).
+
+  That is exactly what `codesign -s -` writes. Re-signing a bundle that
+  `codesign` had signed gives a byte-identical CodeDirectory and the same
+  cdhash, and `src/plist.js` writes `codesign`'s `CodeResources` byte for
+  byte. Arm64 hashes 16 KiB pages and Intel 4 KiB: the CPU's page size.
+
+What a player sees: the browser marks the download, so the first launch says
+**"Apple could not verify…"**, and **System Settings → Privacy & Security →
+Open Anyway** opens it. `spctl` gives the game the ordinary "rejected" verdict
+for un-notarized code, not the integrity failure Electron as shipped gets.
+Apple's `syspolicy_check` names the one gap left for clean distribution: a
+**notarization ticket**, which needs an Apple Developer account.
+
+The macOS kits are built on a Mac. The server is `build_server.sh`'s, with a
+minimum of macOS 12. Intel's is built with `-arch x86_64` against a LuaJIT
+built for x86-64, whose build tools run under Rosetta. Both pass the golden
+trace check, the Intel one under Rosetta.
+
 ## The game's identity
 
-- **Android package id.** By default `com.digidream.<module>`. Changing it makes
+- **Android package id / macOS bundle id.** By default `com.digidream.<module>`. Changing it makes
   a different app; keeping it makes an update. Games no longer overwrite each
   other as `com.digidream.app` did.
 - **The signing key** (Android) is made in the page and kept in the browser
@@ -100,6 +139,9 @@ The Electron runtime is downloaded once per version (44.4.5, the one
     longer match.
   - **Linux:** `<id>.png` (512 px) beside the launcher, for a menu entry to
     name. The window's own icon is the shell's.
+  - **macOS:** an `.icns` (16 to 1024 px, Retina sizes included) replacing
+    Electron's. The picture fills Apple's rounded square (824 of 1024 px, as
+    on Big Sur's grid), since macOS does not mask app icons.
 
 ## Two platform facts worth knowing
 
@@ -161,6 +203,25 @@ It leaves the archives, and `icon-test.exe`, in `packager/build/test/` for the
 smoke tests below.
 
 ```sh
+node packager/test/macos.test.js [module] [--run]
+```
+
+This builds `<Name>.app`, unpacks it with `ditto` as Finder does, and has
+Apple's tools judge it:
+- `codesign --verify --deep --strict`;
+- ad hoc, under the game's bundle id, with resources sealed and a cdhash as
+  the designated requirement;
+- `plutil` reads the name, id and version;
+- the framework's symlinks are intact and the `.icns` is well formed;
+- CONTROL: one changed byte in a resource breaks the seal.
+
+`--run` starts the app (a window opens briefly). It requires the shell to
+start the bundled server and a player to join a level, then quits the app and
+checks the server went with it. Keep `ELECTRON_RUN_AS_NODE` out of its
+environment: VS Code's terminals export it, and the app then runs as plain
+Node, prints nothing and exits.
+
+```sh
 # a server, alive: Linux natively, Windows under Wine
 docker run --rm --platform linux/amd64 -v "$PWD":/src:ro -w /src digidream-kit-test \
   node packager/test/server.smoke.mjs modules/doom2 /usr/lib/wine/wine64 packager/build/servers/windows-x64/dnp-server.exe
@@ -183,6 +244,9 @@ pick an icon, and build Android, then Linux, then Windows, fetching each
 download. It needs `node packager/serve.js` running.
 
 **What has been seen working:**
+- **macOS (Apple silicon):** `starter` passes `codesign --verify --deep
+  --strict`, and started both directly and with `open` it starts its server
+  and joins a level. **Intel:** its server runs DOOM II under Rosetta.
 - **Android:** `starter` and DOOM II install side by side with
   `com.digidream.app` and play. A game's own icon shows on the launcher and
   opens the game.
@@ -208,4 +272,6 @@ That needs a Windows machine or VM.
   are the game's.
 - **Release formats:** AAB for Google Play, and installers (MSI, AppImage,
   .deb). An APK and an unpacked folder run anywhere.
-- **No code signing** for Windows (SmartScreen will warn) or macOS.
+- **No code signing** for Windows (SmartScreen will warn). macOS is signed
+  ad hoc but **not notarized**: a notarized build needs a Developer ID
+  certificate and Apple's notary service.

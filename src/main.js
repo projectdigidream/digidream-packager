@@ -9,10 +9,11 @@
 import { moduleFromZip, moduleFromFileList, packagingProblem } from './module.js'
 import { buildApk, defaultPackageId, packageIdProblem } from './android.js'
 import { buildDesktop, windowsPathProblems } from './desktop.js'
+import { buildMac } from './macos.js'
 import { readKit } from './kit.js'
 import { loadIdentity, newIdentity, backupJson, restoreJson } from './keys.js'
 import { fingerprint } from './x509.js'
-import { adaptiveIcon, squareIcon } from './icon.js'
+import { adaptiveIcon, squareIcon, macIcon } from './icon.js'
 import { get as dbGet, put as dbPut, del as dbDel } from './store.js'
 
 const $ = (id) => document.getElementById(id)
@@ -23,7 +24,8 @@ const TARGETS = [
   { id: 'android', name: 'Android', out: 'APK, arm64', kit: 'android.zip' },
   { id: 'linux', name: 'Linux', out: 'x86-64, .tar.gz', kit: 'linux.zip', desktop: true },
   { id: 'windows', name: 'Windows', out: 'x86-64, .zip', kit: 'windows.zip', desktop: true },
-  { id: 'macos', name: 'macOS', out: 'app bundle', kit: 'macos.zip', why: 'comes last' },
+  { id: 'macos', name: 'macOS', out: 'Apple silicon, .zip', kit: 'macos-arm64.zip', kitType: 'macos', desktop: true, mac: true },
+  { id: 'macos-x64', name: 'macOS (Intel)', out: 'x86-64, .zip', kit: 'macos-x64.zip', kitType: 'macos', desktop: true, mac: true },
   { id: 'ios', name: 'iOS', out: 'app', kit: null, why: 'later' }
 ]
 
@@ -107,12 +109,13 @@ async function drawIcon () {
   const prev = $('icon-prev')
   if (prev.dataset.url) URL.revokeObjectURL(prev.dataset.url)
   delete prev.dataset.url
-  const desktop = TARGETS.find((t) => t.id === state.target)?.desktop
+  const tgt = TARGETS.find((t) => t.id === state.target)
+  const desktop = tgt?.desktop
   prev.classList.toggle('square', !!desktop)
   prev.classList.toggle('adaptive', !desktop && !!state.picture)
   if (!state.picture) { prev.innerHTML = '<span>engine icon</span>'; return }
   try {
-    const png = desktop ? await squareIcon(state.picture, 144) : await adaptiveIcon(state.picture)
+    const png = tgt?.mac ? await macIcon(state.picture, 144) : desktop ? await squareIcon(state.picture, 144) : await adaptiveIcon(state.picture)
     const url = URL.createObjectURL(new Blob([png], { type: 'image/png' }))
     prev.dataset.url = url
     prev.innerHTML = `<img alt="" src="${url}">`
@@ -173,7 +176,7 @@ async function kitFor (target) {
   log(`fetching the ${t.name} kit`)
   const r = await fetch(`build/kits/${t.kit}`, { cache: 'no-store' })
   if (!r.ok) throw new Error(`no ${t.name} kit beside this page (${r.status})`)
-  const kit = await readKit(new Uint8Array(await r.arrayBuffer()), target)
+  const kit = await readKit(new Uint8Array(await r.arrayBuffer()), t.kitType ?? target)
   state.kits[target] = kit
   return kit
 }
@@ -184,8 +187,10 @@ $('pick-kit').addEventListener('change', async (ev) => {
   if (!f) return
   try {
     const kit = await readKit(new Uint8Array(await f.arrayBuffer()))
-    state.kits[kit.info.kit] = kit
-    state.target = kit.info.kit
+    // The macOS kits are one kind in two arches; the arch picks the target.
+    const id = kit.info.kit === 'macos' && kit.info.arch === 'x64' ? 'macos-x64' : kit.info.kit
+    state.kits[id] = kit
+    state.target = id
     drawTargets()
   } catch (e) { $('kit-summary').innerHTML = `<span class="problem">${esc(e.message)}</span>` }
   refresh()
@@ -233,8 +238,9 @@ function missing () {
     const bad = windowsPathProblems(state.module)
     if (bad.length) return `Windows cannot hold ${bad.length} of this module's file names, e.g. ${bad.slice(0, 2).join(', ')}.`
   }
-  if (t.desktop) return null
+  if (t.desktop && !t.mac) return null
   const pp = packageIdProblem($('pkg').value.trim())
+  if (t.mac) return pp ? `Bundle id: ${pp}.` : null
   if (pp) return `Package id: ${pp}.`
   const vc = Number($('vcode').value)
   if (!Number.isInteger(vc) || vc < 1 || vc > 2100000000) return 'The version code is a whole number from 1.'
@@ -243,7 +249,9 @@ function missing () {
 }
 
 function refresh () {
-  document.body.classList.toggle('desktop', !!TARGETS.find((t) => t.id === state.target)?.desktop)
+  const tg = TARGETS.find((t) => t.id === state.target)
+  document.body.classList.toggle('desktop', !!tg?.desktop)
+  document.body.classList.toggle('mac', !!tg?.mac)
   const why = missing()
   $('build').disabled = !!why
   $('build-why').textContent = why ?? ''
@@ -284,6 +292,15 @@ $('build').addEventListener('click', async () => {
       blob = new Blob([apk], { type: 'application/vnd.android.package-archive' })
       name = `${state.module.id}-${opts.versionName}.apk`
       remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.packageId, versionName: opts.versionName, versionCode: opts.versionCode, map: opts.map, studio: opts.studio })
+    } else if (TARGETS.find((t) => t.id === state.target)?.mac) {
+      const opts = {
+        ...common,
+        bundleId: $('pkg').value.trim(),
+        version: $('vname').value.trim() || '1.0',
+        iconFor: picture ? (n) => macIcon(picture, n) : undefined
+      }
+      ;({ blob, filename: name } = await buildMac(kit, state.module, opts, log))
+      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.bundleId, versionName: opts.version, studio: opts.studio })
     } else {
       const opts = {
         ...common,
