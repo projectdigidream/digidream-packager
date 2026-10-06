@@ -55,6 +55,9 @@ pre#log { font-family: var(--mono); font-size: 12px; background: var(--bg); bord
           margin: 10px 0 0; }
 pre#log:empty { display: none; }
 .hidden { display: none !important; }
+.kit { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 2px 4px 2px 8px; margin: 2px 2px 0 0; }
+.kit small { color: var(--dim); }
+.kit button { min-height: 24px; padding: 0 6px; border: 0; background: none; color: var(--dim); }
 body.desktop .android-only { display: none !important; }
 body.desktop:not(.mac) .id-field { display: none !important; }
 .icon-row { display: flex; gap: 14px; align-items: center; margin: 4px 0 10px; }
@@ -72,7 +75,7 @@ body.desktop:not(.mac) .id-field { display: none !important; }
 <main>
   <header>
     <h1>Digidream Packager</h1>
-    <p>A module in, a game out. Everything happens in this page: nothing is uploaded, and this machine needs no SDK.</p>
+    <p>A module in, a game out, for Android, Windows, Linux and macOS. Everything happens here: nothing is uploaded, and this machine needs no SDK.</p>
   </header>
 
   <section id="s-module">
@@ -88,6 +91,7 @@ body.desktop:not(.mac) .id-field { display: none !important; }
     <h2><span class="n">2</span> Platform</h2>
     <div class="targets" id="targets"></div>
     <div class="summary" id="kit-summary"></div>
+    <div class="summary" id="kit-list"></div>
     <div class="row" style="margin-top:8px">
       <label class="btn">Load a kit file<input type="file" id="pick-kit" accept=".zip,application/zip"></label>
     </div>
@@ -131,6 +135,7 @@ body.desktop:not(.mac) .id-field { display: none !important; }
     <div class="row">
       <button class="primary" id="build" disabled>Build</button>
       <a class="btn hidden" id="download">Download</a>
+      <button class="hidden" id="install">Install on this phone</button>
     </div>
     <div class="summary" id="build-why"></div>
     <pre id="log"></pre>

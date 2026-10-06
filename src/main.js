@@ -11,6 +11,8 @@ import { buildApk, defaultPackageId, packageIdProblem } from './android.js'
 import { buildDesktop, windowsPathProblems } from './desktop.js'
 import { buildMac } from './macos.js'
 import { readKit } from './kit.js'
+import { host } from './host.js'
+import { listKits, putKit, getKitBytes, removeKit } from './kitstore.js'
 import { loadIdentity, newIdentity, backupJson, restoreJson } from './keys.js'
 import { fingerprint } from './x509.js'
 import { adaptiveIcon, squareIcon, macIcon } from './icon.js'
@@ -21,11 +23,13 @@ const $ = (id) => document.getElementById(id)
 // Every platform the packager knows, whether or not a kit exists for it yet.
 // `why` is what is shown while it cannot be built.
 const TARGETS = [
-  { id: 'android', name: 'Android', out: 'APK, arm64', kit: 'android.zip' },
-  { id: 'linux', name: 'Linux', out: 'x86-64, .tar.gz', kit: 'linux.zip', desktop: true },
-  { id: 'windows', name: 'Windows', out: 'x86-64, .zip', kit: 'windows.zip', desktop: true },
-  { id: 'macos', name: 'macOS', out: 'Apple silicon, .zip', kit: 'macos-arm64.zip', kitType: 'macos', desktop: true, mac: true },
-  { id: 'macos-x64', name: 'macOS (Intel)', out: 'x86-64, .zip', kit: 'macos-x64.zip', kitType: 'macos', desktop: true, mac: true },
+  // `store`: the kit's name in the kit store (kitstore.js) and, + '.zip', the
+  // file a bundled kit has beside the page.
+  { id: 'android', name: 'Android', out: 'APK, arm64', store: 'android' },
+  { id: 'linux', name: 'Linux', out: 'x86-64, .tar.gz', store: 'linux', desktop: true },
+  { id: 'windows', name: 'Windows', out: 'x86-64, .zip', store: 'windows', desktop: true },
+  { id: 'macos', name: 'macOS', out: 'Apple silicon, .zip', store: 'macos-arm64', kitType: 'macos', desktop: true, mac: true },
+  { id: 'macos-x64', name: 'macOS (Intel)', out: 'x86-64, .zip', store: 'macos-x64', kitType: 'macos', desktop: true, mac: true },
   { id: 'ios', name: 'iOS', out: 'app', kit: null, why: 'later' }
 ]
 
@@ -33,7 +37,9 @@ const state = {
   module: null,
   target: 'android',
   kits: {}, // target id -> { info, zip }
-  kitAvailable: {}, // target id -> true when a kit file sits beside the page
+  kitAvailable: {}, // target id -> 'stored' | 'bundled' when a kit can be had without asking
+  outputBlob: null,
+  outputName: null,
   identity: null,
   // The picture the game's icon is made from (a Blob), or null for the
   // engine's. Each platform derives its own form at build time: the adaptive
@@ -159,13 +165,28 @@ function drawTargets () {
   }
 }
 
+// Where a target's kit can come from, in order: this session, the kit store
+// (loaded once, kept), or bundled with the tool (host.kitsBase).
 async function probeKits () {
-  await Promise.all(TARGETS.filter((t) => t.kit).map(async (t) => {
+  const stored = new Map((await listKits()).map((k) => [k.name, k.info]))
+  await Promise.all(TARGETS.filter((t) => t.store).map(async (t) => {
+    if (stored.has(t.store)) { state.kitAvailable[t.id] = 'stored'; return }
     try {
-      const r = await fetch(`build/kits/${t.kit}`, { method: 'HEAD', cache: 'no-store' })
-      state.kitAvailable[t.id] = r.ok
-    } catch { state.kitAvailable[t.id] = false }
+      const r = await fetch(`${host.kitsBase}${t.store}.zip`, { method: 'HEAD', cache: 'no-store' })
+      state.kitAvailable[t.id] = r.ok ? 'bundled' : null
+    } catch { state.kitAvailable[t.id] = null }
   }))
+  $('kit-list').innerHTML = stored.size
+    ? 'Kept in this ' + (host.kind === 'browser' ? 'browser' : 'app') + ': ' + [...stored].map(([n, i]) =>
+        `<span class="kit">${esc(n)} <small>engine ${esc(i.engine)}</small> <button data-rm="${esc(n)}" title="Remove">✕</button></span>`).join(' ')
+    : ''
+  for (const b of $('kit-list').querySelectorAll('[data-rm]')) {
+    b.addEventListener('click', async () => {
+      await removeKit(b.dataset.rm)
+      for (const t of TARGETS) if (t.store === b.dataset.rm) delete state.kits[t.id]
+      probeKits()
+    })
+  }
   drawTargets()
   refresh()
 }
@@ -173,10 +194,15 @@ async function probeKits () {
 async function kitFor (target) {
   if (state.kits[target]) return state.kits[target]
   const t = TARGETS.find((x) => x.id === target)
-  log(`fetching the ${t.name} kit`)
-  const r = await fetch(`build/kits/${t.kit}`, { cache: 'no-store' })
-  if (!r.ok) throw new Error(`no ${t.name} kit beside this page (${r.status})`)
-  const kit = await readKit(new Uint8Array(await r.arrayBuffer()), t.kitType ?? target)
+  let bytes = await getKitBytes(t.store)
+  if (bytes) log(`the ${t.name} kit, from the kit store`)
+  else {
+    log(`fetching the ${t.name} kit`)
+    const r = await fetch(`${host.kitsBase}${t.store}.zip`, { cache: 'no-store' })
+    if (!r.ok) throw new Error(`no ${t.name} kit (load one with "Load a kit file")`)
+    bytes = new Uint8Array(await r.arrayBuffer())
+  }
+  const kit = await readKit(bytes, t.kitType ?? target)
   state.kits[target] = kit
   return kit
 }
@@ -186,12 +212,15 @@ $('pick-kit').addEventListener('change', async (ev) => {
   ev.target.value = ''
   if (!f) return
   try {
-    const kit = await readKit(new Uint8Array(await f.arrayBuffer()))
-    // The macOS kits are one kind in two arches; the arch picks the target.
-    const id = kit.info.kit === 'macos' && kit.info.arch === 'x64' ? 'macos-x64' : kit.info.kit
-    state.kits[id] = kit
-    state.target = id
-    drawTargets()
+    $('kit-summary').textContent = 'Reading the kit…'
+    const bytes = new Uint8Array(await f.arrayBuffer())
+    // Kept in the kit store, so it is there for every later build, offline.
+    const { name } = await putKit(bytes)
+    const t = TARGETS.find((x) => x.store === name)
+    state.kits[t.id] = await readKit(bytes, t.kitType ?? t.id)
+    state.target = t.id
+    await probeKits()
+    drawIcon()
   } catch (e) { $('kit-summary').innerHTML = `<span class="problem">${esc(e.message)}</span>` }
   refresh()
 })
@@ -267,6 +296,7 @@ for (const id of ['label', 'pkg', 'vname', 'vcode', 'map', 'studio']) $(id).addE
 $('build').addEventListener('click', async () => {
   $('build').disabled = true
   $('download').classList.add('hidden')
+  $('install').classList.add('hidden')
   $('log').textContent = ''
   const t0 = performance.now()
   try {
@@ -314,8 +344,11 @@ $('build').addEventListener('click', async () => {
     state.output = URL.createObjectURL(blob)
     $('download').href = state.output
     $('download').download = name
-    $('download').textContent = `Download ${name} (${mb(blob.size)})`
+    state.outputBlob = blob
+    state.outputName = name
+    $('download').textContent = `${host.kind === 'browser' ? 'Download' : 'Save'} ${name} (${mb(blob.size)})`
     $('download').classList.remove('hidden')
+    if (host.canInstall && name.endsWith('.apk')) $('install').classList.remove('hidden')
     log(`done in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${name}`)
   } catch (e) {
     log(`FAILED: ${e.message}`)
@@ -325,12 +358,18 @@ $('build').addEventListener('click', async () => {
 })
 
 function save (blob, name) {
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = name
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000)
+  return host.save(blob, name)
 }
+
+// In a browser the link downloads by itself; an app shell saves through its host.
+$('download').addEventListener('click', async (ev) => {
+  if (host.kind === 'browser') return
+  ev.preventDefault()
+  try { log(`saved: ${await host.save(state.outputBlob, state.outputName)}`) } catch (e) { log(`not saved: ${e.message}`) }
+})
+$('install').addEventListener('click', async () => {
+  try { log(await host.install(state.outputBlob, state.outputName)) } catch (e) { log(`not installed: ${e.message}`) }
+})
 
 function esc (s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The packager on a phone: the packager page in a WebView, served from inside
+  the APK. It can build a game, save it through the system's file picker, and
+  install an APK it just built (REQUEST_INSTALL_PACKAGES; the system asks).
+  No INTERNET: everything it shows comes out of its own APK.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.digidream.packager">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application
+        android:label="Digidream Packager"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        <activity
+            android:name="com.digidream.packager.MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

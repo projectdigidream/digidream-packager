@@ -129,7 +129,8 @@ export async function buildMac (kit, mod, opts, log = () => {}) {
     add(`${C}/Resources/electron.icns`, await makeIcns(opts.iconFor))
     log('icon: electron.icns replaced with the game\'s')
   }
-  const n = await addGameTree({ zip, mod, opts, APP, add, fromKit, platform: `Darwin-${info.arch}` })
+  // opts.tree replaces the game tree (the packager's own app; desktop.js).
+  const n = await (opts.tree ?? addGameTree)({ zip, mod, opts, APP, add, fromKit, platform: `Darwin-${info.arch}` })
 
   // 2. Info.plist: the game's name, id and version. ElectronAsarIntegrity
   //    vouches for default_app.asar, which is gone.

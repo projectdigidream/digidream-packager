@@ -150,7 +150,9 @@ export async function buildDesktop (kit, mod, opts, log = () => {}) {
   }
   if (info.kit === 'linux') add(`${dir}/${exe}`, enc.encode(linuxLauncher(binary)), 0o755)
   // 2-4. The engine's tree, the module, game.json and package.json.
-  const n = await addGameTree({ zip, mod, opts, APP, add, fromKit, platform: info.kit === 'windows' ? 'Windows-x86_64' : 'Linux-x86_64' })
+  // opts.tree replaces the game tree: the packager's own desktop app is built
+  // by this same code with its own files in resources/app (scripts/build_apps.mjs).
+  const n = await (opts.tree ?? addGameTree)({ zip, mod, opts, APP, add, fromKit, platform: info.kit === 'windows' ? 'Windows-x86_64' : 'Linux-x86_64' })
   if (opts.iconFor && info.kit === 'linux') add(`${dir}/${exe}.png`, await opts.iconFor(512))
 
   log(`module ${id}: ${n} file(s), ${mod.maps.length} level(s); ${info.kit} x64, Electron ${info.electron}`)

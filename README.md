@@ -4,9 +4,13 @@ A module in, a game out, in a browser page. Pick a module, pick a platform,
 name the game, and the page builds the game. Nothing is uploaded. The machine
 it runs on needs no SDK, compiler, JDK or Docker. It can be a phone.
 
+It runs as an app on every platform it builds for, or as a plain page:
+
 ```sh
-node packager/serve.js                      # http://127.0.0.1:8950/
-packager/scripts/build_kits.sh              # once per engine version, on a dev machine
+packager/scripts/build_kits.sh              # the kits: once per engine version, on a dev machine
+node packager/scripts/build_apps.mjs        # the packager as a Windows / Linux / macOS app
+packager/scripts/build_app_android.sh       # the packager as an Android app
+node packager/serve.js                      # or just the page: http://127.0.0.1:8950/
 ```
 
 | platform | what you get | state |
@@ -16,6 +20,36 @@ packager/scripts/build_kits.sh              # once per engine version, on a dev 
 | Windows | `<Name>-windows-x64.zip`: unpack, run `<Name>.exe` | **built and partly verified**; the app has not been run on real Windows (see below) |
 | macOS | `<Name>-macos-arm64.zip` / `-x64.zip`: `<Name>.app`, sealed and signed ad hoc | **works**, verified on this Mac (Apple silicon); Intel server verified under Rosetta |
 | iOS | | later |
+
+## The packager as an app
+
+One page, with four ways to run it. The only per-platform difference is how a
+finished file leaves (`src/host.js`):
+
+| | how it is built | saving a game | kits it ships with |
+|---|---|---|---|
+| Windows, Linux, macOS | `scripts/build_apps.mjs`: Electron from the desktop kits' runtimes, assembled, launchered, icon-patched and (macOS) sealed and signed **by the packager's own builders**. The packager builds itself. | the system's save dialog | Android |
+| Android | `scripts/build_app_android.sh`: one activity (`shells/android`), a WebView, built with the SDK's tools like the engine's APK | the system's "save as" picker, or **Install on this phone** (PackageInstaller; the system asks) | Android |
+| a browser | `node serve.js`, or any https host | a download | whatever sits in `build/kits/` beside it |
+
+- **Desktop:** the page is served from `app://packager/`, a privileged scheme.
+- **Android:** it is served from `https://appassets.androidplatform.net/`.
+  - That name never resolves, and every request is answered from the APK,
+    which asks for no INTERNET permission.
+  - Bytes cross from the page into Java as base64 chunks into a staged file:
+    strings are what a JavascriptInterface carries.
+
+Both origins are secure contexts, as WebCrypto, OPFS and module workers
+require.
+
+**The kit store** (`src/kitstore.js`) is the page's private file system
+(OPFS). A kit loaded once (**Load a kit file**) stays for every later build,
+offline, in a browser, the desktop app and the phone alike. Only the 14 MB
+Android kit ships inside the apps. The desktop kits are 130–165 MB each.
+
+**The packager's icon** is `shells/icon/icon.svg`, rendered to PNG sizes by
+`shells/icon/render.sh` (headless Chrome) and committed. The Android app draws
+the same parcel as a vector.
 
 ## How it can need no SDK: kits
 
@@ -243,7 +277,35 @@ This drives the page in Chrome at a phone's size: open the zip, make a key,
 pick an icon, and build Android, then Linux, then Windows, fetching each
 download. It needs `node packager/serve.js` running.
 
+```sh
+cd <dir with puppeteer-core@23>
+node /abs/path/packager/test/app.desktop.mjs <app executable> <module.zip> <outdir> [kit.zip]
+node /abs/path/packager/test/app.android.mjs <module.zip>      # after build_app_android.sh --debuggable
+```
+
+These drive the packager **apps** over the DevTools protocol: the Electron
+window, or the WebView through adb.
+- **Desktop:** opens a module, makes a key, builds Android from the bundled
+  kit and saves it, then loads a desktop kit into the kit store and builds
+  that.
+- **Android:** the same, then **Install on this phone**. The phone's install
+  dialogs (the system's Install, and Play Protect's "Install anyway" for an
+  app from an unknown developer) are tapped by the test when it can, and by
+  whoever watches the emulator when it cannot.
+
 **What has been seen working:**
+- **The packager apps:**
+  - The macOS app passes `codesign --verify --deep --strict`. Inside it, an
+    Android game was built and saved (`apksigner` verifies it), and a Linux
+    game was built after loading the Linux kit.
+  - The Linux app does the same in a container: Android, and Windows from a
+    loaded kit.
+  - **On the Android emulator, the phone built a game, saved it, and
+    installed it with Install on this phone.** The game is listed as installed
+    by `com.digidream.packager` and starts. Play Protect's "Install anyway"
+    was clicked by hand.
+  - The Windows packager app has not been run (Electron does not start under
+    Wine).
 - **macOS (Apple silicon):** `starter` passes `codesign --verify --deep
   --strict`, and started both directly and with `open` it starts its server
   and joins a level. **Intel:** its server runs DOOM II under Rosetta.
@@ -262,6 +324,9 @@ Chromium-on-Wine limitation), so **the Windows game app has not been run**.
 That needs a Windows machine or VM.
 
 ## Not done
+
+- **Hosting.** There is no hosted page or kit download yet: kits come from
+  `build_kits.sh` and are loaded as files.
 
 - **One module per game.** A module.txt-only add-on (`doom2fps`) cannot be
   packaged alone.

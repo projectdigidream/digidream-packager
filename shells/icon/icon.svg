@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The packager's icon: a parcel on Apple's rounded-square grid (824/1024). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f8ff0"/>
+      <stop offset="1" stop-color="#1e4fb0"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="184" fill="url(#bg)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="44" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M512 262 L742 382 L742 642 L512 762 L282 642 L282 382 Z"/>
+    <path d="M282 382 L512 502 L742 382"/>
+    <path d="M512 502 L512 762"/>
+    <path d="M397 322 L627 442 L627 532" stroke-width="34" opacity="0.85"/>
+  </g>
+</svg>
