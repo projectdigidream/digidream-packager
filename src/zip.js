@@ -63,6 +63,8 @@ export function readZip (buf) {
     const nlen = dv.getUint16(p + 28, true)
     const xlen = dv.getUint16(p + 30, true)
     const clen = dv.getUint16(p + 32, true)
+    const madeBy = dv.getUint16(p + 4, true) >> 8
+    const external = dv.getUint32(p + 38, true)
     const local = dv.getUint32(p + 42, true)
     const name = utf8d.decode(u8.subarray(p + 46, p + 46 + nlen))
     p += 46 + nlen + xlen + clen
@@ -76,6 +78,9 @@ export function readZip (buf) {
     if (method !== 0 && method !== 8) throw new Error(`zip: ${name} uses method ${method}`)
     entries.set(name, {
       name, method, crc, size,
+      // The unix mode, when a unix zip wrote it (host 3): how the desktop kits
+      // carry their executables' x bits. Null otherwise.
+      mode: madeBy === 3 ? (external >>> 16) & 0xffff : null,
       raw,
       async bytes () {
         const b = method === 0 ? raw : await inflateRaw(raw)

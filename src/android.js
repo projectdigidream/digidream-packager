@@ -6,7 +6,8 @@
 // names the lines it mirrors, because a rule that drifts from the script is a
 // game that works from the command line and not from the packager.
 
-import { readZip, writeZip } from './zip.js'
+import { writeZip } from './zip.js'
+import { readKit } from './kit.js'
 import { decodeAxml, encodeAxml, findElement, setAttr, TYPE, ANDROID_NS } from './axml.js'
 import { signApkV2 } from './apksign.js'
 import { replaceTableStrings } from './arsc.js'
@@ -31,14 +32,8 @@ export function packageIdProblem (id) {
   return bad ? `'${bad}' is a Java keyword and cannot be part of a package id` : null
 }
 
-export async function readKit (bytes) {
-  const zip = readZip(bytes)
-  const meta = zip.get('kit.json')
-  if (!meta) throw new Error('not a packager kit (no kit.json)')
-  const info = JSON.parse(new TextDecoder().decode(await meta.bytes()))
-  if (info.kit !== 'android') throw new Error(`this is the ${info.kit} kit, not the android one`)
-  return { info, zip }
-}
+/** The Android kit (kit.js), checked to be one. */
+export const readAndroidKit = (bytes) => readKit(bytes, 'android')
 
 /**
  * The manifest, renamed. Package, label, version -- everything else is the

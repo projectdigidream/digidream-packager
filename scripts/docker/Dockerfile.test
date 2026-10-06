@@ -1,0 +1,9 @@
+# Where the kits' servers are RUN for packager/test/server.smoke.mjs: Node for
+# the link client, the Linux server natively, the Windows one under Wine.
+# Debian bookworm's glibc (2.36) is newer than the build image's (2.35), as it
+# must be for the Linux binary to start.
+FROM node:22-bookworm
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends wine64 \
+    && rm -rf /var/lib/apt/lists/*
+ENV WINEDEBUG=-all

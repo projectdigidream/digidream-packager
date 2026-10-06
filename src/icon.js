@@ -46,3 +46,21 @@ function edgeColour (img) {
   const h = (v) => Math.round(v / k).toString(16).padStart(2, '0')
   return `#${h(r)}${h(gg)}${h(b)}`
 }
+
+/**
+ * A plain square icon of `size` px for the desktop: the picture fitted whole,
+ * centred, on transparency -- Windows and Linux draw icons unmasked, so
+ * nothing needs to be kept away from the edges. Needs a browser.
+ */
+export async function squareIcon (file, size) {
+  const img = await createImageBitmap(file)
+  const c = new OffscreenCanvas(size, size)
+  const g = c.getContext('2d')
+  const k = Math.min(size / img.width, size / img.height)
+  const w = Math.max(1, Math.round(img.width * k))
+  const h = Math.max(1, Math.round(img.height * k))
+  g.imageSmoothingQuality = 'high'
+  g.drawImage(img, (size - w) >> 1, (size - h) >> 1, w, h)
+  const blob = await c.convertToBlob({ type: 'image/png' })
+  return new Uint8Array(await blob.arrayBuffer())
+}

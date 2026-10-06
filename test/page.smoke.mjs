@@ -77,6 +77,24 @@ try {
     return btoa(s)
   })
   writeFileSync(join(outdir, 'page.apk'), Buffer.from(b64, 'base64'))
+
+  // The desktop targets, from the same page, module and icon.
+  for (const t of ['linux', 'windows']) {
+    const has = await page.$eval(`.target[data-id=${t}] small`, (e) => e.textContent)
+    if (/no kit/.test(has)) { console.log(`  skip ${t} (no kit beside the page)`); continue }
+    await page.click(`.target[data-id=${t}]`)
+    check(await page.$eval('#s-key', (e) => getComputedStyle(e).display === 'none'), `${t}: the Android-only signing key is hidden`)
+    check(!(await page.$eval('#build', (b) => b.disabled)), `${t}: Build is enabled with no key`)
+    await page.$eval('#log', (e) => { e.textContent = '' })
+    await page.click('#build')
+    await page.waitForFunction(() => /done in|FAILED/.test(document.getElementById('log').textContent), { timeout: 300000 })
+    const l = await page.$eval('#log', (e) => e.textContent)
+    check(!l.includes('FAILED'), `${t}: ${l.trim().split('\n').at(-1)}`)
+    if (t === 'windows') check(/icon: written into .*\.exe at 16, 32, 48, 256 px/.test(l), 'windows: the icon went into the .exe')
+    const size = await page.$eval('#download', async (a) => (await (await fetch(a.href)).blob()).size)
+    check(size > 50 * 1048576, `${t}: the download is ${(size / 1048576).toFixed(0)} MB`)
+  }
+  await page.screenshot({ path: join(outdir, 'page-desktop.png'), fullPage: true })
   check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`)
 } finally {
   await browser.close()

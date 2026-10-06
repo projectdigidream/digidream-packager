@@ -7,10 +7,12 @@
 // back as a download.
 
 import { moduleFromZip, moduleFromFileList, packagingProblem } from './module.js'
-import { readKit, buildApk, defaultPackageId, packageIdProblem } from './android.js'
+import { buildApk, defaultPackageId, packageIdProblem } from './android.js'
+import { buildDesktop, windowsPathProblems } from './desktop.js'
+import { readKit } from './kit.js'
 import { loadIdentity, newIdentity, backupJson, restoreJson } from './keys.js'
 import { fingerprint } from './x509.js'
-import { adaptiveIcon } from './icon.js'
+import { adaptiveIcon, squareIcon } from './icon.js'
 import { get as dbGet, put as dbPut, del as dbDel } from './store.js'
 
 const $ = (id) => document.getElementById(id)
@@ -19,8 +21,8 @@ const $ = (id) => document.getElementById(id)
 // `why` is what is shown while it cannot be built.
 const TARGETS = [
   { id: 'android', name: 'Android', out: 'APK, arm64', kit: 'android.zip' },
-  { id: 'linux', name: 'Linux', out: 'x86-64 app', kit: 'linux.zip', why: 'kit not built yet' },
-  { id: 'windows', name: 'Windows', out: 'x86-64 app', kit: 'windows.zip', why: 'needs the Windows server port' },
+  { id: 'linux', name: 'Linux', out: 'x86-64, .tar.gz', kit: 'linux.zip', desktop: true },
+  { id: 'windows', name: 'Windows', out: 'x86-64, .zip', kit: 'windows.zip', desktop: true },
   { id: 'macos', name: 'macOS', out: 'app bundle', kit: 'macos.zip', why: 'comes last' },
   { id: 'ios', name: 'iOS', out: 'app', kit: null, why: 'later' }
 ]
@@ -31,7 +33,10 @@ const state = {
   kits: {}, // target id -> { info, zip }
   kitAvailable: {}, // target id -> true when a kit file sits beside the page
   identity: null,
-  icon: null, // PNG bytes of the game's launcher icon, or null for the engine's
+  // The picture the game's icon is made from (a Blob), or null for the
+  // engine's. Each platform derives its own form at build time: the adaptive
+  // layer for Android, square sizes for the desktop.
+  picture: null,
   output: null
 }
 
@@ -56,13 +61,14 @@ async function takeModule (load) {
     $('label').value = saved?.label ?? m.name
     $('pkg').value = saved?.packageId ?? defaultPackageId(m.id)
     $('vname').value = saved?.versionName ?? '1.0'
-    $('vcode').value = saved ? saved.versionCode + 1 : 1
+    $('vcode').value = saved?.versionCode ? saved.versionCode + 1 : 1
     $('map').innerHTML = m.maps.map((x) => `<option>${esc(x)}</option>`).join('')
     if (saved?.map && m.maps.includes(saved.map)) $('map').value = saved.map
     // Game only unless asked: the studio is for making, and a module carrying
     // a studio document is still usually being shipped to players.
     $('studio').value = saved?.studio ? '1' : '0'
-    setIcon(await dbGet('icons', m.id).catch(() => null) ?? null, false)
+    const stored = await dbGet('icons', m.id).catch(() => null)
+    setPicture(stored instanceof Blob ? stored : null, false)
   } catch (e) {
     state.module = null
     $('mod-summary').innerHTML = `<span class="problem">${esc(e.message)}</span>`
@@ -88,29 +94,42 @@ if (!('webkitdirectory' in document.createElement('input')) || /Android|iPhone|i
 
 // ---- icon ---------------------------------------------------------------------------
 
-function setIcon (png, store = true) {
-  state.icon = png
+async function setPicture (blob, store = true) {
+  state.picture = blob
+  // Remembered per module (IndexedDB), so an update keeps its icon.
+  if (store && state.module) (blob ? dbPut('icons', state.module.id, blob) : dbDel('icons', state.module.id)).catch(() => {})
+  drawIcon()
+}
+
+// The preview shows what the chosen platform will show: Android's layer under a
+// circle mask, or the plain square a desktop draws.
+async function drawIcon () {
   const prev = $('icon-prev')
   if (prev.dataset.url) URL.revokeObjectURL(prev.dataset.url)
-  if (png) {
+  delete prev.dataset.url
+  const desktop = TARGETS.find((t) => t.id === state.target)?.desktop
+  prev.classList.toggle('square', !!desktop)
+  prev.classList.toggle('adaptive', !desktop && !!state.picture)
+  if (!state.picture) { prev.innerHTML = '<span>engine icon</span>'; return }
+  try {
+    const png = desktop ? await squareIcon(state.picture, 144) : await adaptiveIcon(state.picture)
     const url = URL.createObjectURL(new Blob([png], { type: 'image/png' }))
     prev.dataset.url = url
     prev.innerHTML = `<img alt="" src="${url}">`
-  } else {
-    delete prev.dataset.url
-    prev.innerHTML = '<span>engine icon</span>'
+  } catch (e) {
+    prev.innerHTML = '<span>unreadable</span>'
+    $('details-problem').textContent = `That picture could not be read: ${e.message}`
   }
-  // Remembered per module (IndexedDB), so an update keeps its icon.
-  if (store && state.module) (png ? dbPut('icons', state.module.id, png) : dbDel('icons', state.module.id)).catch(() => {})
 }
 
 $('pick-icon').addEventListener('change', async (ev) => {
   const f = ev.target.files[0]
   ev.target.value = ''
   if (!f) return
-  try { setIcon(await adaptiveIcon(f)) } catch (e) { $('details-problem').textContent = `That picture could not be read: ${e.message}` }
+  // Proven readable before it is kept.
+  try { await createImageBitmap(f); setPicture(f) } catch (e) { $('details-problem').textContent = `That picture could not be read: ${e.message}` }
 })
-$('icon-clear').addEventListener('click', () => setIcon(null))
+$('icon-clear').addEventListener('click', () => setPicture(null))
 
 // ---- remembered per module ----------------------------------------------------------
 // The last build's details, so the next one starts from them and the version
@@ -133,7 +152,7 @@ function drawTargets () {
       <b>${t.name}</b><small>${esc(sub)}</small></button>`
   }).join('')
   for (const b of $('targets').querySelectorAll('.target')) {
-    b.addEventListener('click', () => { state.target = b.dataset.id; drawTargets(); refresh() })
+    b.addEventListener('click', () => { state.target = b.dataset.id; drawTargets(); drawIcon(); refresh() })
   }
 }
 
@@ -154,7 +173,7 @@ async function kitFor (target) {
   log(`fetching the ${t.name} kit`)
   const r = await fetch(`build/kits/${t.kit}`, { cache: 'no-store' })
   if (!r.ok) throw new Error(`no ${t.name} kit beside this page (${r.status})`)
-  const kit = await readKit(new Uint8Array(await r.arrayBuffer()))
+  const kit = await readKit(new Uint8Array(await r.arrayBuffer()), target)
   state.kits[target] = kit
   return kit
 }
@@ -208,11 +227,15 @@ function missing () {
   if (!state.module) return 'Open a module.'
   const p = packagingProblem(state.module)
   if (p) return `This module cannot be packaged: ${p}.`
-  if (!state.kits[t.id] && !state.kitAvailable[t.id]) return `${t.name}: ${t.why ?? 'no kit'}.`
-  if (t.id !== 'android') return `${t.name} is not wired yet.`
+  if (!state.kits[t.id] && !state.kitAvailable[t.id]) return `${t.name}: ${t.why ?? 'no kit beside this page; load one'}.`
+  if (!$('label').value.trim()) return 'Give the game a name.'
+  if (t.id === 'windows') {
+    const bad = windowsPathProblems(state.module)
+    if (bad.length) return `Windows cannot hold ${bad.length} of this module's file names, e.g. ${bad.slice(0, 2).join(', ')}.`
+  }
+  if (t.desktop) return null
   const pp = packageIdProblem($('pkg').value.trim())
   if (pp) return `Package id: ${pp}.`
-  if (!$('label').value.trim()) return 'Give the game a name.'
   const vc = Number($('vcode').value)
   if (!Number.isInteger(vc) || vc < 1 || vc > 2100000000) return 'The version code is a whole number from 1.'
   if (!state.identity) return 'Make or restore a signing key.'
@@ -220,13 +243,14 @@ function missing () {
 }
 
 function refresh () {
+  document.body.classList.toggle('desktop', !!TARGETS.find((t) => t.id === state.target)?.desktop)
   const why = missing()
   $('build').disabled = !!why
   $('build-why').textContent = why ?? ''
   const pp = state.module ? packageIdProblem($('pkg').value.trim()) : null
   $('details-problem').textContent = pp ?? ''
   const k = state.kits[state.target]
-  $('kit-summary').textContent = k ? `Kit: engine ${k.info.engine}, built ${k.info.built.slice(0, 10)}, ${k.info.abi ?? ''}` : ''
+  $('kit-summary').textContent = k ? `Kit: engine ${k.info.engine}, built ${k.info.built.slice(0, 10)}, ${k.info.abi ?? `Electron ${k.info.electron}`}` : ''
 }
 for (const id of ['label', 'pkg', 'vname', 'vcode', 'map', 'studio']) $(id).addEventListener('input', refresh)
 
@@ -240,26 +264,42 @@ $('build').addEventListener('click', async () => {
   try {
     const kit = await kitFor(state.target)
     log(`kit: engine ${kit.info.engine}, built ${kit.info.built}`)
-    const opts = {
-      packageId: $('pkg').value.trim(),
+    const picture = state.picture
+    const common = {
       label: $('label').value.trim(),
-      versionName: $('vname').value.trim() || '1.0',
-      versionCode: Number($('vcode').value),
-      map: $('map').value,
-      studio: $('studio').value === '1',
-      identity: state.identity,
-      icon: state.icon
+      studio: $('studio').value === '1'
     }
-    const apk = await buildApk(kit, state.module, opts, log)
-    const name = `${state.module.id}-${opts.versionName}.apk`
+    let blob, name
+    if (state.target === 'android') {
+      const opts = {
+        ...common,
+        packageId: $('pkg').value.trim(),
+        versionName: $('vname').value.trim() || '1.0',
+        versionCode: Number($('vcode').value),
+        map: $('map').value,
+        identity: state.identity,
+        icon: picture ? await adaptiveIcon(picture) : null
+      }
+      const apk = await buildApk(kit, state.module, opts, log)
+      blob = new Blob([apk], { type: 'application/vnd.android.package-archive' })
+      name = `${state.module.id}-${opts.versionName}.apk`
+      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.packageId, versionName: opts.versionName, versionCode: opts.versionCode, map: opts.map, studio: opts.studio })
+    } else {
+      const opts = {
+        ...common,
+        version: $('vname').value.trim() || '1.0',
+        iconFor: picture ? (n) => squareIcon(picture, n) : undefined
+      }
+      ;({ blob, filename: name } = await buildDesktop(kit, state.module, opts, log))
+      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, versionName: opts.version, studio: opts.studio })
+    }
     if (state.output) URL.revokeObjectURL(state.output)
-    state.output = URL.createObjectURL(new Blob([apk], { type: 'application/vnd.android.package-archive' }))
+    state.output = URL.createObjectURL(blob)
     $('download').href = state.output
     $('download').download = name
-    $('download').textContent = `Download ${name} (${mb(apk.length)})`
+    $('download').textContent = `Download ${name} (${mb(blob.size)})`
     $('download').classList.remove('hidden')
     log(`done in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${name}`)
-    remember(state.module.id, { label: opts.label, packageId: opts.packageId, versionName: opts.versionName, versionCode: opts.versionCode, map: opts.map, studio: opts.studio })
   } catch (e) {
     log(`FAILED: ${e.message}`)
     console.error(e)
