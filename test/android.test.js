@@ -129,5 +129,26 @@ check(!z.has('kit.json'), 'the kit\'s own table of contents is not shipped')
 const start = new TextDecoder().decode(await z.get('assets/game/start.txt').bytes())
 check(start.includes(`module=${MODULE}\n`) && start.includes(`map=${mod.maps[0]}\n`), 'start.txt names the module and map')
 
+// --- the icon --------------------------------------------------------------------
+console.log('android: a game with its own icon')
+// Any PNG will do for the SDK's question; the page makes a proper 432 px layer
+// with icon.js, which needs a browser (page.smoke.mjs covers that).
+const iconPng = new Uint8Array(readFileSync(join(REPO, 'modules', 'starter', 'assets', 'sprites', 'SPIR.png')))
+const iconApk = await buildApk(kit, viaZip, {
+  packageId: defaultPackageId(MODULE), label: mod.name, versionCode: 2, versionName: '1.1', identity, icon: iconPng
+})
+const iconOut = join(PKG, 'build', 'test', `${MODULE}-icon.apk`)
+writeFileSync(iconOut, iconApk)
+check(run(join(BT, 'apksigner'), ['verify', iconOut]).status === 0, 'the icon build verifies')
+const res = run(join(BT, 'aapt2'), ['dump', 'resources', iconOut]).stdout
+check(/drawable\/ic_fg\s+\(\) \(file\) res\/drawable\/ic_fg\.png type=PNG/.test(res), 'the icon foreground is the PNG')
+check(/mipmap\/ic_launcher\s+\(\) \(file\) res\/mipmap\/ic_launcher\.png type=PNG/.test(res), 'the fallback icon is the PNG')
+check(res.includes('res/mipmap-anydpi-v26/ic_launcher.xml'), 'the adaptive icon still wraps it')
+const iz = readZip(iconApk)
+check(!iz.has('res/drawable/ic_fg.xml') && iz.has('res/drawable/ic_fg.png'), 'the vector is replaced, not shipped beside')
+check(Buffer.compare(Buffer.from(await iz.get('res/drawable/ic_fg.png').bytes()), Buffer.from(iconPng)) === 0, 'the PNG is the bytes given')
+// CONTROL: without an icon the engine's vector is what ships.
+check(/res\/drawable\/ic_fg\.xml type=XML/.test(run(join(BT, 'aapt2'), ['dump', 'resources', out]).stdout), 'CONTROL: no icon given, the engine\'s vector')
+
 console.log(`== ${checks} checks, ${fails} failures ==  (${relative(REPO, out)})`)
 process.exit(fails ? 1 : 0)

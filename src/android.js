@@ -9,6 +9,7 @@
 import { readZip, writeZip } from './zip.js'
 import { decodeAxml, encodeAxml, findElement, setAttr, TYPE, ANDROID_NS } from './axml.js'
 import { signApkV2 } from './apksign.js'
+import { replaceTableStrings } from './arsc.js'
 
 const ART = ['textures', 'sprites', 'music', 'sounds', 'ui']
 // Already compressed: deflating again costs time and gains nothing.
@@ -66,7 +67,8 @@ const concat = (...xs) => {
 const text = (s) => new TextEncoder().encode(s)
 
 /**
- * opts: { packageId, label, versionCode, versionName, map, studio, identity }
+ * opts: { packageId, label, versionCode, versionName, map, studio, identity,
+ *         icon? }   icon: PNG bytes (icon.js makes them from any picture)
  * log:  (line) => void
  * Returns the signed APK bytes.
  */
@@ -89,9 +91,26 @@ export async function buildApk (kit, mod, opts, log = () => {}) {
   put('AndroidManifest.xml', manifestFor(await zip.get('AndroidManifest.xml').bytes(), opts))
   // resources.arsc must be STORED and 4-aligned (target SDK 30+), whatever the
   // kit's zip did to it.
-  out.set('resources.arsc', { name: 'resources.arsc', data: await zip.get('resources.arsc').bytes(), compress: false, align: 4 })
+  //
+  // THE ICON. The launcher icon's foreground and the pre-26 fallback are file
+  // resources whose paths sit in the table's string pool; pointing them at a
+  // .png makes Android decode a bitmap where it parsed the engine's vector.
+  // The XML files they replace are left out (arsc.js).
+  let arsc = await zip.get('resources.arsc').bytes()
+  const ICON_FILES = { 'res/drawable/ic_fg.xml': 'res/drawable/ic_fg.png', 'res/mipmap/ic_launcher.xml': 'res/mipmap/ic_launcher.png' }
+  if (opts.icon) {
+    const r = replaceTableStrings(arsc, (s) => ICON_FILES[s])
+    if (r.changed !== Object.keys(ICON_FILES).length) {
+      throw new Error(`the kit's resource table does not name the icon files this packager knows (${r.changed} of ${Object.keys(ICON_FILES).length}); rebuild the kit or update android.js`)
+    }
+    arsc = r.bytes
+    for (const png of Object.values(ICON_FILES)) out.set(png, { name: png, data: opts.icon, compress: false, align: 4 })
+    log('icon: the game\'s own')
+  }
+  out.set('resources.arsc', { name: 'resources.arsc', data: arsc, compress: false, align: 4 })
   for (const [name, e] of zip) {
     if (name === 'kit.json' || name === 'AndroidManifest.xml' || name === 'resources.arsc') continue
+    if (opts.icon && ICON_FILES[name]) continue
     if (name.startsWith('assets/web/studio/') && !opts.studio) continue
     if (name.startsWith('assets/')) continue // the asset trees are merged below
     copyKit(name, e)

@@ -10,6 +10,8 @@ import { moduleFromZip, moduleFromFileList, packagingProblem } from './module.js
 import { readKit, buildApk, defaultPackageId, packageIdProblem } from './android.js'
 import { loadIdentity, newIdentity, backupJson, restoreJson } from './keys.js'
 import { fingerprint } from './x509.js'
+import { adaptiveIcon } from './icon.js'
+import { get as dbGet, put as dbPut, del as dbDel } from './store.js'
 
 const $ = (id) => document.getElementById(id)
 
@@ -29,6 +31,7 @@ const state = {
   kits: {}, // target id -> { info, zip }
   kitAvailable: {}, // target id -> true when a kit file sits beside the page
   identity: null,
+  icon: null, // PNG bytes of the game's launcher icon, or null for the engine's
   output: null
 }
 
@@ -59,6 +62,7 @@ async function takeModule (load) {
     // Game only unless asked: the studio is for making, and a module carrying
     // a studio document is still usually being shipped to players.
     $('studio').value = saved?.studio ? '1' : '0'
+    setIcon(await dbGet('icons', m.id).catch(() => null) ?? null, false)
   } catch (e) {
     state.module = null
     $('mod-summary').innerHTML = `<span class="problem">${esc(e.message)}</span>`
@@ -81,6 +85,32 @@ $('pick-dir').addEventListener('change', (ev) => {
 if (!('webkitdirectory' in document.createElement('input')) || /Android|iPhone|iPad/i.test(navigator.userAgent)) {
   $('pick-dir-label').classList.add('hidden')
 }
+
+// ---- icon ---------------------------------------------------------------------------
+
+function setIcon (png, store = true) {
+  state.icon = png
+  const prev = $('icon-prev')
+  if (prev.dataset.url) URL.revokeObjectURL(prev.dataset.url)
+  if (png) {
+    const url = URL.createObjectURL(new Blob([png], { type: 'image/png' }))
+    prev.dataset.url = url
+    prev.innerHTML = `<img alt="" src="${url}">`
+  } else {
+    delete prev.dataset.url
+    prev.innerHTML = '<span>engine icon</span>'
+  }
+  // Remembered per module (IndexedDB), so an update keeps its icon.
+  if (store && state.module) (png ? dbPut('icons', state.module.id, png) : dbDel('icons', state.module.id)).catch(() => {})
+}
+
+$('pick-icon').addEventListener('change', async (ev) => {
+  const f = ev.target.files[0]
+  ev.target.value = ''
+  if (!f) return
+  try { setIcon(await adaptiveIcon(f)) } catch (e) { $('details-problem').textContent = `That picture could not be read: ${e.message}` }
+})
+$('icon-clear').addEventListener('click', () => setIcon(null))
 
 // ---- remembered per module ----------------------------------------------------------
 // The last build's details, so the next one starts from them and the version
@@ -217,7 +247,8 @@ $('build').addEventListener('click', async () => {
       versionCode: Number($('vcode').value),
       map: $('map').value,
       studio: $('studio').value === '1',
-      identity: state.identity
+      identity: state.identity,
+      icon: state.icon
     }
     const apk = await buildApk(kit, state.module, opts, log)
     const name = `${state.module.id}-${opts.versionName}.apk`

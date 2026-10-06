@@ -56,6 +56,14 @@ it makes an update.
 it. So **Back up key** saves it as a file. That file holds the private key in
 the clear: keep it private.
 
+**The icon** is any picture. The page fits it into the middle 72 dp of the
+108 dp adaptive-icon layer, the part every launcher mask leaves visible, and
+fills the rest with the picture's edge colour (`src/icon.js`). The APK then
+points the kit's icon resources at that PNG instead of the engine's vector. That
+is one string in `resources.arsc`'s pool (`src/arsc.js`), since Android chooses
+XML or bitmap by the file's extension, so no resource id moves. Each module's
+icon is remembered in the browser.
+
 **The version code** must grow with every update. The page remembers each
 module's last build and starts the next one at the code plus one.
 
@@ -105,8 +113,6 @@ with `com.digidream.app` and play (`docs/screenshots/2026-10-06-packager-*`).
 
 - **A module.txt-only add-on** (`doom2fps`) cannot be packaged: one module per
   game, as `build_apk.sh` takes. Several modules per game come next.
-- **The icon** is the kit's (`res/`). A per-game icon means writing the
-  resource table, not only the manifest.
 - **Maps are not baked here.** A module must carry its `.dnpm`. The studio's
   wasm `mapc` could bake them in the page.
 - **Release AAB** for Google Play: not yet. An APK installs anywhere.

@@ -35,7 +35,7 @@ export const ANDROID_NS = 'http://schemas.android.com/apk/res/android'
 
 // ---- decode -----------------------------------------------------------------
 
-function readPool (dv, u8, at) {
+export function readPool (dv, u8, at) {
   const count = dv.getUint32(at + 8, true)
   const flags = dv.getUint32(at + 16, true)
   const stringsStart = dv.getUint32(at + 20, true)
@@ -138,7 +138,7 @@ function chunkHeader (type, headerSize, size) {
 
 function pad4 (n) { return (4 - (n % 4)) % 4 }
 
-function encodePool (strings, utf8) {
+export function encodePool (strings, utf8) {
   const bodies = strings.map((s) => {
     if (utf8) {
       const b = new TextEncoder().encode(s)

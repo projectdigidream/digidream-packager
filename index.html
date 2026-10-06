@@ -55,6 +55,13 @@ pre#log { font-family: var(--mono); font-size: 12px; background: var(--bg); bord
           margin: 10px 0 0; }
 pre#log:empty { display: none; }
 .hidden { display: none !important; }
+.icon-row { display: flex; gap: 14px; align-items: center; margin: 4px 0 10px; }
+.icon-prev { width: 72px; height: 72px; border-radius: 50%; overflow: hidden; flex: none;
+             background: var(--bg); border: 1px solid var(--line); display: grid; place-items: center; }
+/* The launcher shows the middle 72 of the icon's 108 dp, cut to a circle at the
+   tightest; the preview crops the same way. */
+.icon-prev img { width: 150%; height: 150%; object-fit: cover; }
+.icon-prev span { color: var(--dim); font-size: 11px; text-align: center; padding: 4px; }
 </style>
 </head>
 <body>
@@ -92,6 +99,14 @@ pre#log:empty { display: none; }
       <label class="f"><span>Starts on</span><select id="map"></select></label>
       <label class="f"><span>Studio</span>
         <select id="studio"><option value="0">Game only</option><option value="1">Game + studio</option></select></label>
+    </div>
+    <span class="summary" style="margin:0">Icon</span>
+    <div class="icon-row">
+      <div class="icon-prev" id="icon-prev"><span>engine icon</span></div>
+      <div class="row">
+        <label class="btn">Choose picture<input type="file" id="pick-icon" accept="image/png,image/jpeg,image/webp"></label>
+        <button id="icon-clear">Use the engine's</button>
+      </div>
     </div>
     <div class="summary problem" id="details-problem"></div>
   </section>

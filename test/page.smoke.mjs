@@ -54,6 +54,13 @@ try {
   check(await page.$eval('#build', (b) => b.disabled), 'CONTROL: a one-segment package id disables Build')
   await page.$eval('#pkg', (e) => { e.value = 'com.digidream.pagetest'; e.dispatchEvent(new Event('input')) })
 
+  // An icon: composed in the page (OffscreenCanvas) into the 432 px layer.
+  if (process.env.ICON) {
+    await (await page.$('#pick-icon')).uploadFile(process.env.ICON)
+    await page.waitForFunction(() => document.querySelector('#icon-prev img'), { timeout: 20000 })
+    const dims = await page.$eval('#icon-prev img', (i) => new Promise((r) => i.complete ? r([i.naturalWidth, i.naturalHeight]) : i.onload = () => r([i.naturalWidth, i.naturalHeight])))
+    check(dims[0] === 432 && dims[1] === 432, `the icon layer is 432 x 432 (${dims.join(' x ')})`)
+  }
   await page.screenshot({ path: join(outdir, 'page-ready.png'), fullPage: true })
   await page.click('#build')
   await page.waitForFunction(() => !document.getElementById('download').classList.contains('hidden') ||
