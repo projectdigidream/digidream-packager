@@ -47,6 +47,15 @@ cp "$HERE/index.html" "$OUT/stage/assets/www/"
 cp "$HERE"/src/*.js "$OUT/stage/assets/www/src/"
 cp "$SHELL_DIR/android-host.js" "$OUT/stage/assets/www/"
 cp "$HERE/build/kits/android.zip" "$OUT/stage/assets/www/kits/"
+# The Tauri kits (a few MB each) ship too, when their engine matches the
+# Android kit's: the phone can then build small desktop games out of the box.
+ANDROID_ENGINE="$(unzip -p "$HERE/build/kits/android.zip" kit.json | sed -n 's/.*"engine": "\([^"]*\)".*/\1/p')"
+for k in "$HERE"/build/kits/tauri-*.zip; do
+  [[ -f "$k" ]] || continue
+  e="$(unzip -p "$k" kit.json | sed -n 's/.*"engine": "\([^"]*\)".*/\1/p')"
+  if [[ "$e" == "$ANDROID_ENGINE" ]]; then cp "$k" "$OUT/stage/assets/www/kits/"; echo "[app] android  bundling $(basename "$k")"
+  else echo "[app] android  NOT bundling $(basename "$k"): engine $e, the Android kit is $ANDROID_ENGINE"; fi
+done
 
 # --- the launcher icon: the packager's parcel (shells/icon/icon.svg), as an
 # adaptive icon's foreground, drawn in the safe 66 dp of its 108.

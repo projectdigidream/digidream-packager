@@ -100,6 +100,28 @@ try {
     const size = await page.$eval('#download', async (a) => (await (await fetch(a.href)).blob()).size)
     check(size > 50 * 1048576, `${t}: the download is ${(size / 1048576).toFixed(0)} MB`)
   }
+  // The Tauri option, on whichever desktop target has a Tauri kit here.
+  const tauriTarget = await page.evaluate(async () => {
+    for (const id of ['macos', 'linux', 'windows']) {
+      const r = await fetch(`build/kits/tauri-${id === 'macos' ? 'macos-arm64' : id}.zip`, { method: 'HEAD' })
+      if (r.ok) return id
+    }
+    return null
+  })
+  if (tauriTarget) {
+    await page.click(`.target[data-id=${tauriTarget}]`)
+    await page.select('#shell', 'tauri')
+    await page.waitForFunction((id) => document.querySelector(`.target[data-id=${id}] small`).textContent.includes('Tauri'), {}, tauriTarget)
+    check(await page.$eval('#studio', (e) => e.disabled && e.value === '0'), 'tauri: the studio is off (game only)')
+    await page.$eval('#log', (e) => { e.textContent = '' })
+    await page.click('#build')
+    await page.waitForFunction(() => /done in|FAILED/.test(document.getElementById('log').textContent), { timeout: 300000 })
+    const l = await page.$eval('#log', (e) => e.textContent)
+    check(!l.includes('FAILED') && /Tauri runner/.test(l), `tauri ${tauriTarget}: ${l.trim().split('\n').at(-1)}`)
+    const size = await page.$eval('#download', async (a) => (await (await fetch(a.href)).blob()).size)
+    check(size < 40 * 1048576, `tauri ${tauriTarget}: the download is ${(size / 1048576).toFixed(1)} MB`)
+    await page.select('#shell', 'electron')
+  } else console.log('  skip tauri (no Tauri kit beside the page)')
   await page.screenshot({ path: join(outdir, 'page-desktop.png'), fullPage: true })
   check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`)
 } finally {

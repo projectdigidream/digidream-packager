@@ -7,8 +7,9 @@
 // What goes in resources/app instead of a game: shells/desktop (main.cjs,
 // preload.cjs), the page under www/ (index.html, src/), and the Android kit
 // under www/kits/ -- 14 MB, so a fresh install can build an Android game at
-// once. The desktop kits are 130-165 MB each and are not bundled: the app keeps
-// the ones it is given (Load a kit file) in its kit store.
+// once. The Tauri kits (a few MB) ship too. The Electron desktop kits are
+// 130-165 MB each and are not bundled: the app keeps the ones it is given
+// (Load a kit file) in its kit store.
 //
 // Output: packager/build/apps/Digidream Packager-<platform>.{tar.gz,zip}. The
 // Android app is scripts/build_app_android.sh (it needs the SDK, not a kit).
@@ -55,8 +56,22 @@ async function tree ({ APP, add }) {
     if (f.endsWith('.js')) { add(`${APP}/www/src/${f}`, file(join(PKG, 'src', f))); n++ }
   }
   if (existsSync(join(KITS, 'android.zip'))) { add(`${APP}/www/kits/android.zip`, file(join(KITS, 'android.zip'))); n++ }
+  for (const k of BUNDLED_TAURI) { add(`${APP}/www/kits/${k}`, file(join(KITS, k))); n++ }
   return n
 }
+
+// The Tauri kits are a few MB each, so they ship inside the app too -- the
+// ones from the same engine version as the bundled Android kit, which a Tauri
+// build takes its web and server trees from.
+const engineOf = async (f) => (await readKit(file(join(KITS, f)))).info.engine
+const androidEngine = existsSync(join(KITS, 'android.zip')) ? await engineOf('android.zip') : null
+const BUNDLED_TAURI = []
+for (const f of readdirSync(KITS).filter((n) => /^tauri-.*\.zip$/.test(n))) {
+  const e = await engineOf(f)
+  if (e === androidEngine) BUNDLED_TAURI.push(f)
+  else console.log(`[apps] NOT bundling ${f}: engine ${e}, the Android kit is ${androidEngine}`)
+}
+if (BUNDLED_TAURI.length) console.log(`[apps] bundling ${BUNDLED_TAURI.join(', ')}`)
 
 // The builders take a module; the packager is not one, so it is an empty one
 // that names the app.

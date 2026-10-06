@@ -10,7 +10,9 @@
 
 import { readKit } from './kit.js'
 
-export const kitName = (info) => (info.kit === 'macos' ? `macos-${info.arch}` : info.kit)
+export const kitName = (info) =>
+  info.kit === 'tauri' ? `tauri-${info.os}${info.os === 'macos' ? `-${info.arch}` : ''}`
+    : info.kit === 'macos' ? `macos-${info.arch}` : info.kit
 
 async function dir () {
   if (!navigator.storage?.getDirectory) throw new Error('this browser has no private file storage (OPFS)')

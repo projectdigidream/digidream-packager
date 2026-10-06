@@ -32,6 +32,67 @@ export function packageIdProblem (id) {
   return bad ? `'${bad}' is a Java keyword and cannot be part of a package id` : null
 }
 
+/**
+ * The two trees every shell built on the Android kit's staging serves: the web
+ * tree the page loads and the server's tree of files -- build_apk.sh's rules,
+ * restated (see buildApk). `to(name)` maps the kit's own names
+ * ("assets/web/...", "assets/game/...") to where this shell keeps them: the APK
+ * keeps them as they are, the Tauri runner under game/ (tauri.js).
+ */
+export async function stageTrees (zip, mod, opts, put, copyKit, to) {
+  const id = mod.id
+  const map = opts.map
+  const modFile = (p) => mod.files.get(p)
+  const modRead = async (p) => (modFile(p) ? modFile(p).read() : null)
+  // 2. The web tree: the kit's (the client, the synth, the engine's own art).
+  for (const [name, e] of zip) {
+    if (!name.startsWith('assets/web/')) continue
+    if (name.startsWith('assets/web/studio/') && !opts.studio) continue
+    copyKit(to(name), e)
+  }
+  // Art, the module winning per FILE (build_apk.sh "for kind in textures ...").
+  let art = 0
+  for (const [p, f] of mod.files) {
+    const m = /^assets\/([^/]+)\/(.+)$/.exec(p)
+    if (!m || !ART.includes(m[1])) continue
+    put(to(`assets/web/${m[1]}/${m[2]}`), await f.read()); art++
+  }
+  // props.txt and animations.txt CONCATENATED, engine then module under a
+  // "# --- <module> ---" header (build_apk.sh "for f in props.txt animations.txt").
+  for (const f of ['props.txt', 'animations.txt']) {
+    const engine = zip.get(`assets/web/${f}`) ? await zip.get(`assets/web/${f}`).bytes() : new Uint8Array(0)
+    const mine = await modRead(`assets/${f}`)
+    put(to(`assets/web/${f}`), mine ? concat(engine, text(`\n# --- ${id} ---\n`), mine) : engine)
+  }
+  // The baked maps the page loads (build_apk.sh: cp maps/*.dnpm web/maps/).
+  for (const m of mod.maps) put(to(`assets/web/maps/${m}`), await modRead(`maps/${m}`))
+
+  // 3. The game tree the server reads as files (build_apk.sh section 4).
+  for (const [name, e] of zip) if (name.startsWith('assets/game/')) copyKit(to(name), e)
+  const G = to(`assets/game/modules/${id}`)
+  const props = await modRead('assets/props.txt')
+  if (props) put(`${G}/assets/props.txt`, props)
+  const skip = (p) => /\.map$|\.editor\.json$/.test(p) // find -delete in build_apk.sh
+  let gameFiles = 0
+  for (const [p, f] of mod.files) {
+    if (!p.startsWith('maps/') || skip(p)) continue
+    put(`${G}/${p}`, await f.read()); gameFiles++
+  }
+  if (modFile('module.txt')) put(`${G}/module.txt`, await modRead('module.txt'))
+  if (opts.studio) {
+    if (modFile('module.studio.json')) put(`${G}/module.studio.json`, await modRead('module.studio.json'))
+    for (const [p, f] of mod.files) {
+      if (p.startsWith('assets/') && !skip(p)) put(`${G}/${p}`, await f.read())
+    }
+  }
+  const built = new Date().toISOString().slice(0, 16).replace('T', ' ')
+  put(to('assets/game/start.txt'), text(
+    '# Written by the packager. Read by MainActivity at first launch.\n' +
+    `module=${id}\nmap=${map}\nstudio=${opts.studio ? 1 : 0}\nbuilt=${built}\n`))
+
+  return { art, gameFiles }
+}
+
 /** The Android kit (kit.js), checked to be one. */
 export const readAndroidKit = (bytes) => readKit(bytes, 'android')
 
@@ -111,51 +172,8 @@ export async function buildApk (kit, mod, opts, log = () => {}) {
     copyKit(name, e)
   }
 
-  // 2. The web tree: the kit's (the client, the synth, the engine's own art).
-  for (const [name, e] of zip) {
-    if (!name.startsWith('assets/web/')) continue
-    if (name.startsWith('assets/web/studio/') && !opts.studio) continue
-    copyKit(name, e)
-  }
-  // Art, the module winning per FILE (build_apk.sh "for kind in textures ...").
-  let art = 0
-  for (const [p, f] of mod.files) {
-    const m = /^assets\/([^/]+)\/(.+)$/.exec(p)
-    if (!m || !ART.includes(m[1])) continue
-    put(`assets/web/${m[1]}/${m[2]}`, await f.read()); art++
-  }
-  // props.txt and animations.txt CONCATENATED, engine then module under a
-  // "# --- <module> ---" header (build_apk.sh "for f in props.txt animations.txt").
-  for (const f of ['props.txt', 'animations.txt']) {
-    const engine = zip.get(`assets/web/${f}`) ? await zip.get(`assets/web/${f}`).bytes() : new Uint8Array(0)
-    const mine = await modRead(`assets/${f}`)
-    put(`assets/web/${f}`, mine ? concat(engine, text(`\n# --- ${id} ---\n`), mine) : engine)
-  }
-  // The baked maps the page loads (build_apk.sh: cp maps/*.dnpm web/maps/).
-  for (const m of mod.maps) put(`assets/web/maps/${m}`, await modRead(`maps/${m}`))
-
-  // 3. The game tree the server reads as files (build_apk.sh section 4).
-  for (const [name, e] of zip) if (name.startsWith('assets/game/')) copyKit(name, e)
-  const G = `assets/game/modules/${id}`
-  const props = await modRead('assets/props.txt')
-  if (props) put(`${G}/assets/props.txt`, props)
-  const skip = (p) => /\.map$|\.editor\.json$/.test(p) // find -delete in build_apk.sh
-  let gameFiles = 0
-  for (const [p, f] of mod.files) {
-    if (!p.startsWith('maps/') || skip(p)) continue
-    put(`${G}/${p}`, await f.read()); gameFiles++
-  }
-  if (modFile('module.txt')) put(`${G}/module.txt`, await modRead('module.txt'))
-  if (opts.studio) {
-    if (modFile('module.studio.json')) put(`${G}/module.studio.json`, await modRead('module.studio.json'))
-    for (const [p, f] of mod.files) {
-      if (p.startsWith('assets/') && !skip(p)) put(`${G}/${p}`, await f.read())
-    }
-  }
-  const built = new Date().toISOString().slice(0, 16).replace('T', ' ')
-  put('assets/game/start.txt', text(
-    '# Written by the packager. Read by MainActivity at first launch.\n' +
-    `module=${id}\nmap=${map}\nstudio=${opts.studio ? 1 : 0}\nbuilt=${built}\n`))
+  // 2-3. The web tree and the server's tree (stageTrees, below).
+  const { art, gameFiles } = await stageTrees(zip, mod, { ...opts, map }, put, copyKit, (n) => n)
 
   log(`module ${id}: ${mod.maps.length} level(s), starting on ${map}; ${art} art file(s) over the engine's, ${gameFiles} file(s) for the server`)
   log(`manifest: ${opts.packageId} "${opts.label}" ${opts.versionName} (${opts.versionCode})`)

@@ -70,6 +70,26 @@ try {
   const saved = /saved: (.+)$/m.exec(l)?.[1]
   check(saved && existsSync(saved) && statSync(saved).size > 1e6, `the APK was saved: ${saved}`)
 
+  // The Tauri option, from the kits the app SHIPS with (no loading): this
+  // machine's own desktop platform.
+  const here = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'
+  await page.click(`.target[data-id=${here}]`)
+  await page.select('#shell', 'tauri')
+  const tauriReady = await page.waitForFunction((id) => document.querySelector(`.target[data-id=${id}] small`).textContent.includes('Tauri'), { timeout: 30000 }, here).then(() => true, () => false)
+  check(tauriReady, `the Tauri kit for ${here} ships with the app`)
+  if (tauriReady) {
+    await page.$eval('#log', (e) => { e.textContent = '' })
+    await page.click('#build')
+    await page.waitForFunction(() => /done in|FAILED/.test(document.getElementById('log').textContent), { timeout: 300000 })
+    const lt = await page.$eval('#log', (e) => e.textContent)
+    check(!lt.includes('FAILED') && /Tauri runner/.test(lt), `tauri ${here}: ${lt.trim().split('\n').at(-1)}`)
+    await page.click('#download')
+    await page.waitForFunction(() => /saved: |not saved/.test(document.getElementById('log').textContent), { timeout: 120000 })
+    const st = /saved: (.+)$/m.exec(await page.$eval('#log', (e) => e.textContent))?.[1]
+    check(st && existsSync(st) && statSync(st).size > 5e6 && statSync(st).size < 6e7, `tauri ${here} saved: ${st}`)
+    await page.select('#shell', 'electron')
+  }
+
   if (extraKit) {
     await (await page.$('#pick-kit')).uploadFile(extraKit)
     await page.waitForFunction(() => /Kept in this app/.test(document.getElementById('kit-list').textContent), { timeout: 120000 })

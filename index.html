@@ -90,6 +90,13 @@ body.desktop:not(.mac) .id-field { display: none !important; }
   <section id="s-target">
     <h2><span class="n">2</span> Platform</h2>
     <div class="targets" id="targets"></div>
+    <div class="row hidden" id="shell-row" style="margin-top:10px">
+      <label class="f" style="margin:0;flex:1"><span>Desktop shell</span>
+        <select id="shell">
+          <option value="electron">Electron (default): self-contained, the same Chromium everywhere</option>
+          <option value="tauri">Tauri: small, runs in the system's own web view</option>
+        </select></label>
+    </div>
     <div class="summary" id="kit-summary"></div>
     <div class="summary" id="kit-list"></div>
     <div class="row" style="margin-top:8px">

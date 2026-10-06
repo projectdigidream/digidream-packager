@@ -10,6 +10,7 @@ import { moduleFromZip, moduleFromFileList, packagingProblem } from './module.js
 import { buildApk, defaultPackageId, packageIdProblem } from './android.js'
 import { buildDesktop, windowsPathProblems } from './desktop.js'
 import { buildMac } from './macos.js'
+import { buildTauri } from './tauri.js'
 import { readKit } from './kit.js'
 import { host } from './host.js'
 import { listKits, putKit, getKitBytes, removeKit } from './kitstore.js'
@@ -26,10 +27,11 @@ const TARGETS = [
   // `store`: the kit's name in the kit store (kitstore.js) and, + '.zip', the
   // file a bundled kit has beside the page.
   { id: 'android', name: 'Android', out: 'APK, arm64', store: 'android' },
-  { id: 'linux', name: 'Linux', out: 'x86-64, .tar.gz', store: 'linux', desktop: true },
-  { id: 'windows', name: 'Windows', out: 'x86-64, .zip', store: 'windows', desktop: true },
-  { id: 'macos', name: 'macOS', out: 'Apple silicon, .zip', store: 'macos-arm64', kitType: 'macos', desktop: true, mac: true },
-  { id: 'macos-x64', name: 'macOS (Intel)', out: 'x86-64, .zip', store: 'macos-x64', kitType: 'macos', desktop: true, mac: true },
+  // `tauri`: the Tauri kit's store name, for the Tauri shell option.
+  { id: 'linux', name: 'Linux', out: 'x86-64, .tar.gz', store: 'linux', tauri: 'tauri-linux', desktop: true },
+  { id: 'windows', name: 'Windows', out: 'x86-64, .zip', store: 'windows', tauri: 'tauri-windows', desktop: true },
+  { id: 'macos', name: 'macOS', out: 'Apple silicon, .zip', store: 'macos-arm64', tauri: 'tauri-macos-arm64', kitType: 'macos', desktop: true, mac: true },
+  { id: 'macos-x64', name: 'macOS (Intel)', out: 'x86-64, .zip', store: 'macos-x64', tauri: 'tauri-macos-x64', kitType: 'macos', desktop: true, mac: true },
   { id: 'ios', name: 'iOS', out: 'app', kit: null, why: 'later' }
 ]
 
@@ -37,7 +39,11 @@ const state = {
   module: null,
   target: 'android',
   kits: {}, // target id -> { info, zip }
-  kitAvailable: {}, // target id -> 'stored' | 'bundled' when a kit can be had without asking
+  // THE DESKTOP SHELL: Electron (the default, self-contained) or Tauri (small,
+  // runs in the OS's own web view). Remembered per browser.
+  shell: (() => { try { return localStorage.getItem('packager:shell') === 'tauri' ? 'tauri' : 'electron' } catch { return 'electron' } })(),
+  storeAvail: {}, // kit-store name -> 'stored' | 'bundled' | null
+  kitsByStore: {}, // kit-store name -> { info, zip }, loaded this session
   outputBlob: null,
   outputName: null,
   identity: null,
@@ -153,10 +159,17 @@ function remember (id, v) {
 
 // ---- targets and kits -----------------------------------------------------------------
 
+const usesTauri = (t) => state.shell === 'tauri' && !!t?.tauri
+// The kits a target needs with the current shell: its own, or for Tauri the
+// Tauri kit AND the Android kit (whose staged trees the runner serves).
+const kitsNeeded = (t) => (usesTauri(t) ? [t.tauri, 'android'] : t.store ? [t.store] : [])
+const hasKit = (name) => !!state.kitsByStore[name] || !!state.storeAvail[name]
+const available = (t) => kitsNeeded(t).length > 0 && kitsNeeded(t).every(hasKit)
+
 function drawTargets () {
   $('targets').innerHTML = TARGETS.map((t) => {
-    const have = state.kits[t.id] || state.kitAvailable[t.id]
-    const sub = have ? t.out : (t.why ?? 'no kit')
+    const have = available(t)
+    const sub = have ? `${t.out}${usesTauri(t) ? ', Tauri' : ''}` : (t.why ?? (usesTauri(t) ? 'no Tauri kit' : 'no kit'))
     return `<button class="target" data-id="${t.id}" aria-pressed="${state.target === t.id}">
       <b>${t.name}</b><small>${esc(sub)}</small></button>`
   }).join('')
@@ -169,12 +182,13 @@ function drawTargets () {
 // (loaded once, kept), or bundled with the tool (host.kitsBase).
 async function probeKits () {
   const stored = new Map((await listKits()).map((k) => [k.name, k.info]))
-  await Promise.all(TARGETS.filter((t) => t.store).map(async (t) => {
-    if (stored.has(t.store)) { state.kitAvailable[t.id] = 'stored'; return }
+  const names = new Set(TARGETS.flatMap((t) => [t.store, t.tauri]).filter(Boolean))
+  await Promise.all([...names].map(async (name) => {
+    if (stored.has(name)) { state.storeAvail[name] = 'stored'; return }
     try {
-      const r = await fetch(`${host.kitsBase}${t.store}.zip`, { method: 'HEAD', cache: 'no-store' })
-      state.kitAvailable[t.id] = r.ok ? 'bundled' : null
-    } catch { state.kitAvailable[t.id] = null }
+      const r = await fetch(`${host.kitsBase}${name}.zip`, { method: 'HEAD', cache: 'no-store' })
+      state.storeAvail[name] = r.ok ? 'bundled' : null
+    } catch { state.storeAvail[name] = null }
   }))
   $('kit-list').innerHTML = stored.size
     ? 'Kept in this ' + (host.kind === 'browser' ? 'browser' : 'app') + ': ' + [...stored].map(([n, i]) =>
@@ -183,7 +197,7 @@ async function probeKits () {
   for (const b of $('kit-list').querySelectorAll('[data-rm]')) {
     b.addEventListener('click', async () => {
       await removeKit(b.dataset.rm)
-      for (const t of TARGETS) if (t.store === b.dataset.rm) delete state.kits[t.id]
+      delete state.kitsByStore[b.dataset.rm]
       probeKits()
     })
   }
@@ -191,20 +205,24 @@ async function probeKits () {
   refresh()
 }
 
-async function kitFor (target) {
-  if (state.kits[target]) return state.kits[target]
-  const t = TARGETS.find((x) => x.id === target)
-  let bytes = await getKitBytes(t.store)
-  if (bytes) log(`the ${t.name} kit, from the kit store`)
+// A kit by its store name: this session, the kit store, or bundled.
+async function kitByName (name, want) {
+  if (state.kitsByStore[name]) return state.kitsByStore[name]
+  let bytes = await getKitBytes(name)
+  if (bytes) log(`the ${name} kit, from the kit store`)
   else {
-    log(`fetching the ${t.name} kit`)
-    const r = await fetch(`${host.kitsBase}${t.store}.zip`, { cache: 'no-store' })
-    if (!r.ok) throw new Error(`no ${t.name} kit (load one with "Load a kit file")`)
+    log(`fetching the ${name} kit`)
+    const r = await fetch(`${host.kitsBase}${name}.zip`, { cache: 'no-store' })
+    if (!r.ok) throw new Error(`no ${name} kit (load one with "Load a kit file")`)
     bytes = new Uint8Array(await r.arrayBuffer())
   }
-  const kit = await readKit(bytes, t.kitType ?? target)
-  state.kits[target] = kit
+  const kit = await readKit(bytes, want)
+  state.kitsByStore[name] = kit
   return kit
+}
+const kitFor = (target) => {
+  const t = TARGETS.find((x) => x.id === target)
+  return kitByName(t.store, t.kitType ?? target)
 }
 
 $('pick-kit').addEventListener('change', async (ev) => {
@@ -215,15 +233,26 @@ $('pick-kit').addEventListener('change', async (ev) => {
     $('kit-summary').textContent = 'Reading the kit…'
     const bytes = new Uint8Array(await f.arrayBuffer())
     // Kept in the kit store, so it is there for every later build, offline.
-    const { name } = await putKit(bytes)
-    const t = TARGETS.find((x) => x.store === name)
-    state.kits[t.id] = await readKit(bytes, t.kitType ?? t.id)
-    state.target = t.id
+    const { name, info } = await putKit(bytes)
+    state.kitsByStore[name] = await readKit(bytes)
+    // A Tauri kit selects the Tauri shell and its platform; any other kit, its target.
+    const t = TARGETS.find((x) => x.store === name || x.tauri === name)
+    if (info.kit === 'tauri') setShell('tauri')
+    else if (t?.desktop) setShell('electron')
+    if (t) state.target = t.id
     await probeKits()
     drawIcon()
   } catch (e) { $('kit-summary').innerHTML = `<span class="problem">${esc(e.message)}</span>` }
   refresh()
 })
+
+function setShell (v) {
+  state.shell = v === 'tauri' ? 'tauri' : 'electron'
+  try { localStorage.setItem('packager:shell', state.shell) } catch {}
+  drawTargets()
+  refresh()
+}
+$('shell').addEventListener('change', (e) => setShell(e.target.value))
 
 // ---- key ------------------------------------------------------------------------------
 
@@ -261,7 +290,11 @@ function missing () {
   if (!state.module) return 'Open a module.'
   const p = packagingProblem(state.module)
   if (p) return `This module cannot be packaged: ${p}.`
-  if (!state.kits[t.id] && !state.kitAvailable[t.id]) return `${t.name}: ${t.why ?? 'no kit beside this page; load one'}.`
+  if (!available(t)) {
+    if (t.why) return `${t.name}: ${t.why}.`
+    const lacking = kitsNeeded(t).filter((n) => !hasKit(n))
+    return `${t.name}${usesTauri(t) ? ' (Tauri)' : ''}: no ${lacking.join(' or ')} kit; load one.`
+  }
   if (!$('label').value.trim()) return 'Give the game a name.'
   if (t.id === 'windows') {
     const bad = windowsPathProblems(state.module)
@@ -279,6 +312,11 @@ function missing () {
 
 function refresh () {
   const tg = TARGETS.find((t) => t.id === state.target)
+  $('shell-row').classList.toggle('hidden', !tg?.desktop)
+  $('shell').value = state.shell
+  // The Tauri runner is game only: no studio file calls (yet).
+  $('studio').disabled = usesTauri(tg)
+  if (usesTauri(tg)) $('studio').value = '0'
   document.body.classList.toggle('desktop', !!tg?.desktop)
   document.body.classList.toggle('mac', !!tg?.mac)
   const why = missing()
@@ -286,7 +324,7 @@ function refresh () {
   $('build-why').textContent = why ?? ''
   const pp = state.module ? packageIdProblem($('pkg').value.trim()) : null
   $('details-problem').textContent = pp ?? ''
-  const k = state.kits[state.target]
+  const k = state.kitsByStore[usesTauri(tg) ? tg.tauri : tg?.store]
   $('kit-summary').textContent = k ? `Kit: engine ${k.info.engine}, built ${k.info.built.slice(0, 10)}, ${k.info.abi ?? `Electron ${k.info.electron}`}` : ''
 }
 for (const id of ['label', 'pkg', 'vname', 'vcode', 'map', 'studio']) $(id).addEventListener('input', refresh)
@@ -300,7 +338,8 @@ $('build').addEventListener('click', async () => {
   $('log').textContent = ''
   const t0 = performance.now()
   try {
-    const kit = await kitFor(state.target)
+    const tgt = TARGETS.find((t) => t.id === state.target)
+    const kit = usesTauri(tgt) ? await kitByName(tgt.tauri, 'tauri') : await kitFor(state.target)
     log(`kit: engine ${kit.info.engine}, built ${kit.info.built}`)
     const picture = state.picture
     const common = {
@@ -322,6 +361,18 @@ $('build').addEventListener('click', async () => {
       blob = new Blob([apk], { type: 'application/vnd.android.package-archive' })
       name = `${state.module.id}-${opts.versionName}.apk`
       remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.packageId, versionName: opts.versionName, versionCode: opts.versionCode, map: opts.map, studio: opts.studio })
+    } else if (usesTauri(TARGETS.find((t) => t.id === state.target))) {
+      const tg = TARGETS.find((t) => t.id === state.target)
+      const tkit = await kitByName(tg.tauri, 'tauri')
+      const akit = await kitByName('android', 'android')
+      const opts = {
+        ...common,
+        bundleId: $('pkg').value.trim(),
+        version: $('vname').value.trim() || '1.0',
+        iconFor: picture ? (n) => (tg.mac ? macIcon(picture, n) : squareIcon(picture, n)) : undefined
+      }
+      ;({ blob, filename: name } = await buildTauri(tkit, akit, state.module, opts, log))
+      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.bundleId, versionName: opts.version })
     } else if (TARGETS.find((t) => t.id === state.target)?.mac) {
       const opts = {
         ...common,

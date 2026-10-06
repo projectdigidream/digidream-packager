@@ -147,6 +147,52 @@ minimum of macOS 12. Intel's is built with `-arch x86_64` against a LuaJIT
 built for x86-64, whose build tools run under Rosetta. Both pass the golden
 trace check, the Intel one under Rosetta.
 
+## Tauri: the small option for desktop games
+
+Electron stays the default for Windows, Linux and macOS. Each desktop target
+also offers **Tauri**: the game runs in the system's own web view instead of a
+bundled Chromium.
+
+| | Electron (default) | Tauri |
+|---|---|---|
+| a game (starter) | about 130–165 MB | about 16 MB |
+| its kit | 130–165 MB, loaded into the kit store | about 2 MB, **bundled with the packager apps** |
+| web engine | the same Chromium everywhere | WebView2 (Chromium) on Windows, WKWebView (Safari's) on macOS, WebKitGTK on Linux |
+| the player needs | nothing | Linux: `libwebkit2gtk-4.1` (Ubuntu 22.04+, Debian 12+, Fedora 36+); Windows: WebView2 (comes with Windows 10/11) |
+| studio | yes | not yet: game only |
+
+**The runner** (`shells/tauri`, Rust, Tauri 2) is one program per OS, built
+once per engine version. It runs any game laid beside it:
+- it serves `game/web/` from a custom scheme (a secure context);
+- it starts `game/bin/dnp-server` on a free loopback port;
+- it relays raw link bytes between the server and the page.
+
+The page uses the engine's shared `shell.js` over `window.dnpNative`, the seam
+the Android and iOS shells already use. The packager puts a short shim
+(`shells/tauri/web/tauri-native.js`) in front of it. The shim also forwards the
+page's errors to the runner's output, since a web view has no console.
+
+**A Tauri kit** is that runner and the server for one OS. The web and server
+trees come from the Android kit's staging (`stageTrees` in `src/android.js`), so
+the two kits must share an engine version, and the build refuses if they don't.
+
+- **macOS:** the runner gets the same sealed, ad-hoc-signed bundle as the
+  Electron build.
+- **Windows:** the game's icon goes into the runner's `.exe`.
+- **Linux:** a `.tar.gz` of the runner and `game/`.
+
+**Building the kits:**
+- `build_kits.sh tauri-macos-arm64 tauri-macos-x64` builds with cargo on a Mac.
+- `tauri-linux` and `tauri-windows` build in `scripts/docker/Dockerfile.tauri`.
+  Windows is cross-compiled with `cargo-xwin`, which downloads Microsoft's CRT
+  and SDK libraries on first use and, in doing so, accepts their licence.
+
+**Trap found on the way:** the shim and `shell.js` must be joined with a
+semicolon. Both are immediately invoked functions, and `})()` followed by a
+newline and `(function` is ONE JavaScript expression. The shim ran and the
+shell never did, so the client found no `window.dnp`, played solo, and
+rejected the map it fetched.
+
 ## The game's identity
 
 - **Android package id / macOS bundle id.** By default `com.digidream.<module>`. Changing it makes
@@ -294,6 +340,10 @@ window, or the WebView through adb.
   whoever watches the emulator when it cannot.
 
 **What has been seen working:**
+- **Tauri on macOS (Apple silicon):** `starter` passes `codesign --verify
+  --deep --strict`. Started, the runner starts the server, the link comes up, a
+  player joins a level, and quitting stops the server. No page errors were
+  reported. The window itself was not captured.
 - **The packager apps:**
   - The macOS app passes `codesign --verify --deep --strict`. Inside it, an
     Android game was built and saved (`apksigner` verifies it), and a Linux

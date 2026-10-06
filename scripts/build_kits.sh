@@ -296,15 +296,18 @@ luajit_macos_x64() {
   echo "$d"
 }
 
-kit_macos() {
-  local arch="$1" eplat ljdir="" archflag
-  [[ "$(uname -s)" == "Darwin" ]] || { echo "[kit] the macOS kits are built on a Mac" >&2; exit 2; }
+# The macOS server for one arch, checked against the golden trace: shared by
+# the Electron kit (kit_macos) and the Tauri one (kit_tauri_macos). Built once
+# per run.
+mac_server() {
+  local arch="$1" ljdir="" archflag t="macos-$1"
+  # A plain variable per arch, not an associative array: macOS's bash is 3.2.
+  local done_flag="MAC_SERVER_DONE_$arch"
+  [[ -n "${!done_flag:-}" ]] && return
   case "$arch" in
-    arm64) eplat=darwin-arm64; archflag="-arch arm64" ;;
-    x64)   eplat=darwin-x64;   archflag="-arch x86_64"; ljdir="$(luajit_macos_x64)" ;;
+    arm64) archflag="-arch arm64" ;;
+    x64)   archflag="-arch x86_64"; ljdir="$(luajit_macos_x64)" ;;
   esac
-  local t="macos-$arch"
-
   echo "[kit] $t  server (native build_server.sh, macOS $MAC_MIN+)"
   if [[ -n "$ljdir" ]]; then
     DNP_LUAJIT_DIR="$ljdir" DNP_SERVER_OUT="$SERVERS/$t" DNP_SERVER_LDFLAGS="$archflag -mmacosx-version-min=$MAC_MIN" \
@@ -322,6 +325,18 @@ kit_macos() {
   { "$SERVERS/$t/golden_trace" --chunks; "$SERVERS/$t/golden_trace" "${TICKS:-10000}"; } > "$CACHE/trace_$t.txt"
   cmp -s "$HOST_TRACE" "$CACHE/trace_$t.txt" || { echo "[kit] $t: the golden trace DIFFERS from native -- refusing the kit" >&2; exit 1; }
   echo "[kit] $t  determinism: $(wc -l < "$HOST_TRACE" | tr -d ' ') trace lines identical to native $(uname -m)"
+  printf -v "$done_flag" 1
+}
+
+kit_macos() {
+  local arch="$1" eplat
+  [[ "$(uname -s)" == "Darwin" ]] || { echo "[kit] the macOS kits are built on a Mac" >&2; exit 2; }
+  case "$arch" in
+    arm64) eplat=darwin-arm64 ;;
+    x64)   eplat=darwin-x64 ;;
+  esac
+  local t="macos-$arch"
+  mac_server "$arch"
 
   local ezip; ezip="$(electron_zip "$eplat")"
   make_tmpmod
@@ -368,12 +383,109 @@ EOF
   echo "[kit] $t  $OUT/$t.zip  ($(du -h "$OUT/$t.zip" | cut -f1), engine $ENGINE_VERSION, electron $ELECTRON)"
 }
 
+# --- tauri -----------------------------------------------------------------------
+#
+# The OPTION beside Electron (which stays the default): a game in the OS's own
+# web view. A Tauri kit is the runner (shells/tauri, Rust, a few MB) and the
+# server for one OS, plus the shim the page's shell.js is given and a default
+# icon. The web and server trees come from the ANDROID kit when a game is
+# built (src/tauri.js), so both kits must share an engine version.
+
+TAURI_DIR="$HERE/shells/tauri"
+TAURI_TARGET="$HERE/build/tauri-target"
+
+# Pack a Tauri kit from a runner and a server. $1 kit name, $2 os, $3 arch,
+# $4 runner file, $5 server file.
+pack_tauri_kit() {
+  local name="$1" os="$2" arch="$3" runner="$4" server="$5"
+  local stage="${OUT:?}/${name:?}.stage"
+  rm -rf "${stage:?}"; mkdir -p "$stage/runner" "$stage/bin" "$stage/web"
+  cp "$runner" "$stage/runner/"; chmod 755 "$stage/runner/"*
+  cp "$server" "$stage/bin/"; chmod 755 "$stage/bin/"*
+  cp "$TAURI_DIR/web/tauri-native.js" "$stage/web/"
+  cp "$TAURI_DIR/icons/icon.icns" "$stage/icon.icns"
+  cat > "$stage/kit.json" <<EOF
+{
+  "kit": "tauri",
+  "os": "$os",
+  "arch": "$arch",
+  "engine": "$ENGINE_VERSION",
+  "built": "$BUILT",
+  "runner": "runner/$(basename "$runner")",
+  "server": "bin/$(basename "$server")",
+  "shim": "web/tauri-native.js",
+  "icon": "icon.icns",
+  "files": $(list_files "$stage" | json_list)
+}
+EOF
+  pack "$stage" "$OUT/$name.zip"
+  rm -rf "${stage:?}"
+  echo "[kit] $name  $OUT/$name.zip  ($(du -h "$OUT/$name.zip" | cut -f1), engine $ENGINE_VERSION)"
+}
+
+kit_tauri_macos() {
+  local arch="$1" target
+  [[ "$(uname -s)" == "Darwin" ]] || { echo "[kit] the macOS kits are built on a Mac" >&2; exit 2; }
+  case "$arch" in
+    arm64) target=aarch64-apple-darwin ;;
+    x64)   target=x86_64-apple-darwin ;;
+  esac
+  mac_server "$arch"
+  command -v cargo >/dev/null || { echo "[kit] Tauri kits need Rust (cargo) -- https://rustup.rs" >&2; exit 2; }
+  rustup target list --installed 2>/dev/null | grep -qx "$target" || rustup target add "$target"
+  echo "[kit] tauri-macos-$arch  runner (cargo, $target, macOS $MAC_MIN+)"
+  (cd "$TAURI_DIR" && MACOSX_DEPLOYMENT_TARGET=$MAC_MIN cargo build --release --target "$target" --target-dir "$TAURI_TARGET" 2>&1 \
+     | grep -E '^(error|warning)|Finished' | sed 's/^/        /')
+  local runner="$TAURI_TARGET/$target/release/digidream-runner"
+  [[ -f "$runner" ]] || { echo "[kit] no runner at $runner" >&2; exit 1; }
+  # SIGNED HERE, ad hoc. The linker signs only arm64 output on its own, so a
+  # cross-built x86-64 runner has no LC_CODE_SIGNATURE -- and the page re-signs
+  # a game's runner by refilling that slot (src/macho.js), it does not add one.
+  codesign -s - -f "$runner" 2>&1 | grep -v 'replacing existing signature' || true
+  codesign -s - -f "$SERVERS/macos-$arch/dnp-server" 2>&1 | grep -v 'replacing existing signature' || true
+  pack_tauri_kit "tauri-macos-$arch" macos "$arch" "$runner" "$SERVERS/macos-$arch/dnp-server"
+}
+
+# Linux and Windows runners, built in packager/scripts/docker/Dockerfile.tauri;
+# the servers are the same container builds the Electron kits use, checked
+# against the golden trace the same way.
+kit_tauri_docker() {
+  local os="$1" runner server
+  docker_ready
+  docker image inspect digidream-kit-tauri >/dev/null 2>&1 ||
+    docker build --platform linux/amd64 -t digidream-kit-tauri -f "$HERE/scripts/docker/Dockerfile.tauri" "$HERE/scripts/docker" | tail -1
+  build_server "$os"
+  check_trace "$os"
+  local target="$HERE/build/tauri-target-$os"
+  mkdir -p "$target"
+  echo "[kit] tauri-$os  runner (cargo in a container; the first build takes a while)"
+  # The crate is copied in: tauri-build writes gen/ beside its sources. The
+  # cargo registry lives in a named volume so later builds do not refetch it.
+  local cmd='cp -R /src/packager/shells/tauri /work/runner && cd /work/runner && '
+  if [[ "$os" == "windows" ]]; then
+    cmd+='cargo xwin build --release --target x86_64-pc-windows-msvc --target-dir /target'
+    runner="$target/x86_64-pc-windows-msvc/release/digidream-runner.exe"
+    server="$SERVERS/windows-x64/dnp-server.exe"
+  else
+    cmd+='cargo build --release --target-dir /target'
+    runner="$target/release/digidream-runner"
+    server="$SERVERS/linux-x64/dnp-server"
+  fi
+  docker run --rm --platform linux/amd64 -v "$REPO":/src:ro -v "$target":/target -v dnp-cargo-registry:/opt/cargo/registry \
+    digidream-kit-tauri bash -c "$cmd" 2>&1 | grep -E '^(error|warning: unused)|Finished' | sed 's/^/        /'
+  [[ -f "$runner" ]] || { echo "[kit] no runner at $runner" >&2; exit 1; }
+  pack_tauri_kit "tauri-$os" "$os" x64 "$runner" "$server"
+}
+
 for k in "${WHICH[@]}"; do
   case "$k" in
     android) kit_android ;;
     linux|windows) kit_desktop "$k" ;;
     macos-arm64) kit_macos arm64 ;;
     macos-x64) kit_macos x64 ;;
-    *) echo "[kit] unknown kit: $k (known: android linux windows macos-arm64 macos-x64)" >&2; exit 2 ;;
+    tauri-macos-arm64) kit_tauri_macos arm64 ;;
+    tauri-macos-x64) kit_tauri_macos x64 ;;
+    tauri-linux|tauri-windows) kit_tauri_docker "${k#tauri-}" ;;
+    *) echo "[kit] unknown kit: $k (known: android linux windows macos-arm64 macos-x64 tauri-linux tauri-windows tauri-macos-arm64 tauri-macos-x64)" >&2; exit 2 ;;
   esac
 done

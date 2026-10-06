@@ -24,10 +24,11 @@ su player -c "cd '$GAME' && DISPLAY=:99 timeout $SECS '$LAUNCHER' --use-angle=sw
 for i in $(seq 1 "$SECS"); do grep -q 'session 1 -> level' /tmp/game.log && break; sleep 1; done
 sleep 8
 DISPLAY=:99 xwd -root -silent | convert xwd:- "$SHOT" 2>/dev/null
-grep -E '^\[(app|srv|link|page)\]' /tmp/game.log | grep -vE 'level 0: |grid:|nav:' | head -20
+grep -E '^\[(app|runner|srv|link|page)\]' /tmp/game.log | grep -vE 'level 0: |grid:|nav:' | head -20
 fails=0
-grep -q '\[app\] server: ' /tmp/game.log || { echo "[smoke] FAIL the shell did not start the server"; fails=1; }
+# "[app]" is the Electron shell, "[runner]" the Tauri one (shells/tauri).
+grep -qE '\[(app|runner)\] server: ' /tmp/game.log || { echo "[smoke] FAIL the shell did not start the server"; fails=1; }
 grep -q 'session 1 -> level' /tmp/game.log || { echo "[smoke] FAIL no player joined a level"; fails=1; }
-if grep -qE 'Uncaught|FATAL' /tmp/game.log; then echo "[smoke] FAIL page or process errors:"; grep -E 'Uncaught|FATAL' /tmp/game.log | head -5; fails=1; fi
+if grep -qE 'Uncaught|FATAL|\[page\] (error|rejection)' /tmp/game.log; then echo "[smoke] FAIL page or process errors:"; grep -E 'Uncaught|FATAL' /tmp/game.log | head -5; fails=1; fi
 [[ $fails -eq 0 ]] && echo "[smoke] ok: the game started its server, joined a level, and drew ($SHOT)"
 exit $fails

@@ -3,7 +3,7 @@
 
 import { readZip } from './zip.js'
 
-export const KITS = ['android', 'linux', 'windows', 'macos']
+export const KITS = ['android', 'linux', 'windows', 'macos', 'tauri']
 
 export async function readKit (bytes, want) {
   const zip = readZip(bytes)
