@@ -203,6 +203,14 @@ async function probeKits () {
       probeKits()
     })
   }
+  // Nobody chose a shell yet, and only Tauri kits are at hand (the suite
+  // preloads those: they are ~2 MB, the Electron ones ~150): start on Tauri,
+  // so the desktop targets are buildable rather than "no kit".
+  let chose = null
+  try { chose = localStorage.getItem('packager:shell') } catch {}
+  const has = (n) => !!state.storeAvail[n]
+  const desktops = TARGETS.filter((t) => t.desktop)
+  if (!chose && state.shell === 'electron' && !desktops.some((t) => has(t.store)) && desktops.some((t) => has(t.tauri))) state.shell = 'tauri'
   drawTargets()
   refresh()
 }
