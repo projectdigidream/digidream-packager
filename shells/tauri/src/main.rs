@@ -107,6 +107,23 @@ fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).unwrap_or(34500)
 }
 
+// Where the server writes -- save games, level state, the graphs' saved
+// variables (engine docs/GRAPHS.md "Saved on disk"): the user's own data
+// directory, per game. Its default, .dnp-state in its cwd, is inside the app,
+// which is read-only (and on macOS, sealed). The server starts before Tauri
+// does, so this is worked out from the environment rather than asked of it.
+fn state_dir(id: &str) -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let base = if cfg!(windows) {
+        std::env::var_os("APPDATA").map(std::path::PathBuf::from)
+    } else if cfg!(target_os = "macos") {
+        home.map(|h| h.join("Library").join("Application Support"))
+    } else {
+        std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or_else(|| home.map(|h| h.join(".local").join("share")))
+    }?;
+    Some(base.join(id).join("state"))
+}
+
 fn start_server(game: &Path, conf: &serde_json::Value, port: u16) -> std::io::Result<Child> {
     let exe = if cfg!(windows) { "dnp-server.exe" } else { "dnp-server" };
     let bin = game.join("bin").join(exe);
@@ -117,6 +134,9 @@ fn start_server(game: &Path, conf: &serde_json::Value, port: u16) -> std::io::Re
     cmd.arg("--port").arg(port.to_string()).arg("--module").arg(&module);
     if let Some(map) = conf["map"].as_str() {
         cmd.arg("--map").arg(module.join("maps").join(map)).arg("--spawn").arg("start");
+    }
+    if let Some(dir) = state_dir(id) {
+        cmd.arg("--state-dir").arg(dir);
     }
     // cwd = the server tree: it resolves assets/props.txt against it, exactly as
     // the Electron shell arranges for its own.
