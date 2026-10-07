@@ -100,6 +100,8 @@ $('pick-dir').addEventListener('change', (ev) => {
   if (files.length) takeModule(() => moduleFromFileList(files))
   ev.target.value = ''
 })
+// A host with a module of its own (the suite) hands it in: nothing to pick.
+if (host.initialModule) takeModule(async () => moduleFromZip(await host.initialModule()))
 // Phones have no folder picker; offering one that opens a file chooser is worse
 // than not offering it.
 if (!('webkitdirectory' in document.createElement('input')) || /Android|iPhone|iPad/i.test(navigator.userAgent)) {

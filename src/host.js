@@ -8,6 +8,9 @@
 //                      system dialog; the Android app hands it to the system's
 //                      file picker, and can then INSTALL an APK it just built.
 //   kitsBase           where kits that ship WITH the tool live, if any.
+//   module()           a host that already HAS a module (the Digidream suite,
+//                      where the packager is a page) hands it in as a pack
+//                      zip, so there is nothing to pick.
 //
 // A shell announces itself by defining window.packagerHost before this module
 // loads (the desktop preload, the Android shell's injected script). Without
@@ -22,6 +25,9 @@ export const host = {
   kitsBase: shell?.kitsBase ?? 'build/kits/',
 
   canInstall: !!shell?.install,
+
+  /** The module the host has open, as a pack zip (Uint8Array), or null. */
+  initialModule: shell?.module ?? null,
 
   /** Hand a finished file to the user. Resolves to a description of where it went. */
   async save (blob, name) {
