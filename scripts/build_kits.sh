@@ -111,7 +111,7 @@ kit_android() {
   # --studio so the studio's pages are in the kit; the packager leaves them out
   # of a game that does not ask for them.
   echo "[kit] android  running engine/scripts/build_apk.sh"
-  "$ENGINE/scripts/build_apk.sh" --module "$TMPMOD" --studio | sed 's/^/        /'
+  "$ENGINE/scripts/build_apk.sh" --module "$TMPMOD" --studio --no-kits | sed 's/^/        /'
   local apk="$ENGINE/build/android/digidream-$TMPMOD.apk"
   [[ -f "$apk" ]] || { echo "[kit] build_apk.sh produced no $apk" >&2; exit 1; }
 
@@ -232,7 +232,7 @@ kit_desktop() {
   local stage="$OUT/$t.stage"
   rm -rf "$stage"; mkdir -p "$stage"
   echo "[kit] $t  running engine/scripts/build_app.sh"
-  "$ENGINE/scripts/build_app.sh" --module "$TMPMOD" --studio --out "$stage/staging" | sed 's/^/        /'
+  "$ENGINE/scripts/build_app.sh" --module "$TMPMOD" --studio --no-kits --out "$stage/staging" | sed 's/^/        /'
   mv "$stage/staging/$TMPMOD" "$stage/app"
   rm -rf "$stage/staging"
   # Out: the throwaway module, the two files that name the game (written per
@@ -343,7 +343,7 @@ kit_macos() {
   local stage="${OUT:?}/${t:?}.stage"
   rm -rf "${stage:?}"; mkdir -p "$stage/runtime"
   echo "[kit] $t  running engine/scripts/build_app.sh"
-  "$ENGINE/scripts/build_app.sh" --module "$TMPMOD" --studio --out "$stage/staging" | grep -E '^\[app\] (staged|NO )' | sed 's/^/        /'
+  "$ENGINE/scripts/build_app.sh" --module "$TMPMOD" --studio --no-kits --out "$stage/staging" | grep -E '^\[app\] (staged|NO )' | sed 's/^/        /'
   mv "$stage/staging/$TMPMOD" "$stage/app"
   rm -rf "${stage:?}/staging" "${stage:?}/app/modules" "${stage:?}/app/game.json" "${stage:?}/app/package.json" \
          "${stage:?}/app/node_modules" "${stage:?}/app/bin"
