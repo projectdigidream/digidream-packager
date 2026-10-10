@@ -95,7 +95,7 @@ done)
 # --- 2. the Android studio ---------------------------------------------------------
 echo "[release] 2/3 the studio for Android"
 mkdir -p "$OUT"
-"$REPO/engine/scripts/build_apk.sh" --module starter --studio | grep -E '^\[apk\] (studio|assets|/)' | sed 's/^/        /'
+"$REPO/engine/scripts/build_apk.sh" --module starter --studio --icon | grep -E '^\[apk\] (studio|assets|/)' | sed 's/^/        /'
 cp "$REPO/engine/build/android/digidream-starter.apk" "$OUT/Digidream Studio-android.apk"
 
 # --- 3. the desktop studios --------------------------------------------------------

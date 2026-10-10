@@ -33,6 +33,7 @@ import { readKit } from '../src/kit.js'
 import { buildDesktop, addGameTree } from '../src/desktop.js'
 import { buildMac } from '../src/macos.js'
 import { moduleFromEntries } from '../src/module.js'
+import { square } from '../../branding/icons.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PKG = join(HERE, '..')
@@ -107,7 +108,8 @@ for (const t of targets) {
   const log = (l) => console.log(`        ${l}`)
   console.log(`[studio] ${t}  (kit: engine ${kit.info.engine}, Electron ${kit.info.electron})`)
   try {
-    const opts = { label: LABEL, version: VERSION, studio: true, tree: tree(kit.info.engine) }
+    // The Digidream logo (branding/icons.mjs): the exe's icon, the .icns, the Linux png.
+    const opts = { label: LABEL, version: VERSION, studio: true, tree: tree(kit.info.engine), iconFor: async (n) => square(n) }
     const { blob, filename } = kit.info.kit === 'macos'
       ? await buildMac(kit, mod, { ...opts, bundleId: BUNDLE_ID }, log)
       : await buildDesktop(kit, mod, opts, log)
