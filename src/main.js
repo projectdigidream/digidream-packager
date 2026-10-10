@@ -81,6 +81,9 @@ async function takeModule (load) {
     // Game only unless asked: the studio is for making, and a module carrying
     // a studio document is still usually being shipped to players.
     $('studio').value = saved?.studio ? '1' : '0'
+    // A log file (the server's output and the game's console, where the
+    // player can open it): for a build being tested, off for one being shipped.
+    $('logfile').value = saved?.log ? '1' : '0'
     const stored = await dbGet('icons', m.id).catch(() => null)
     setPicture(stored instanceof Blob ? stored : null, false)
   } catch (e) {
@@ -327,6 +330,9 @@ function refresh () {
   // The Tauri runner is game only: no studio file calls (yet).
   $('studio').disabled = usesTauri(tg)
   if (usesTauri(tg)) $('studio').value = '0'
+  // Nor a log file yet (the runner has no GameLog).
+  $('logfile').disabled = usesTauri(tg)
+  if (usesTauri(tg)) $('logfile').value = '0'
   document.body.classList.toggle('desktop', !!tg?.desktop)
   document.body.classList.toggle('mac', !!tg?.mac)
   const why = missing()
@@ -337,7 +343,7 @@ function refresh () {
   const k = state.kitsByStore[usesTauri(tg) ? tg.tauri : tg?.store]
   $('kit-summary').textContent = k ? `Kit: engine ${k.info.engine}, built ${k.info.built.slice(0, 10)}, ${k.info.abi ?? `Electron ${k.info.electron}`}` : ''
 }
-for (const id of ['label', 'pkg', 'vname', 'vcode', 'map', 'studio']) $(id).addEventListener('input', refresh)
+for (const id of ['label', 'pkg', 'vname', 'vcode', 'map', 'studio', 'logfile']) $(id).addEventListener('input', refresh)
 
 // ---- build ------------------------------------------------------------------------------
 
@@ -354,7 +360,8 @@ $('build').addEventListener('click', async () => {
     const picture = state.picture
     const common = {
       label: $('label').value.trim(),
-      studio: $('studio').value === '1'
+      studio: $('studio').value === '1',
+      log: $('logfile').value === '1'
     }
     let blob, name
     if (state.target === 'android') {
@@ -370,7 +377,7 @@ $('build').addEventListener('click', async () => {
       const apk = await buildApk(kit, state.module, opts, log)
       blob = new Blob([apk], { type: 'application/vnd.android.package-archive' })
       name = `${state.module.id}-${opts.versionName}.apk`
-      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.packageId, versionName: opts.versionName, versionCode: opts.versionCode, map: opts.map, studio: opts.studio })
+      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.packageId, versionName: opts.versionName, versionCode: opts.versionCode, map: opts.map, studio: opts.studio, log: opts.log })
     } else if (usesTauri(TARGETS.find((t) => t.id === state.target))) {
       const tg = TARGETS.find((t) => t.id === state.target)
       const tkit = await kitByName(tg.tauri, 'tauri')
@@ -382,7 +389,7 @@ $('build').addEventListener('click', async () => {
         iconFor: picture ? (n) => (tg.mac ? macIcon(picture, n) : squareIcon(picture, n)) : undefined
       }
       ;({ blob, filename: name } = await buildTauri(tkit, akit, state.module, opts, log))
-      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.bundleId, versionName: opts.version })
+      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.bundleId, versionName: opts.version, log: opts.log })
     } else if (TARGETS.find((t) => t.id === state.target)?.mac) {
       const opts = {
         ...common,
@@ -391,7 +398,7 @@ $('build').addEventListener('click', async () => {
         iconFor: picture ? (n) => macIcon(picture, n) : undefined
       }
       ;({ blob, filename: name } = await buildMac(kit, state.module, opts, log))
-      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.bundleId, versionName: opts.version, studio: opts.studio })
+      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, packageId: opts.bundleId, versionName: opts.version, studio: opts.studio, log: opts.log })
     } else {
       const opts = {
         ...common,
@@ -399,7 +406,7 @@ $('build').addEventListener('click', async () => {
         iconFor: picture ? (n) => squareIcon(picture, n) : undefined
       }
       ;({ blob, filename: name } = await buildDesktop(kit, state.module, opts, log))
-      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, versionName: opts.version, studio: opts.studio })
+      remember(state.module.id, { ...remembered(state.module.id), label: opts.label, versionName: opts.version, studio: opts.studio, log: opts.log })
     }
     if (state.output) URL.revokeObjectURL(state.output)
     state.output = URL.createObjectURL(blob)

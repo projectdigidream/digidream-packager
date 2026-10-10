@@ -46,6 +46,8 @@ export async function addGameTree ({ zip, mod, opts, APP, add, fromKit, platform
     modules: [id],
     ...(map ? { map } : {}),
     studio: !!opts.studio,
+    // The game's log file (engine shells/app/filelog.js).
+    log: !!opts.log,
     builtAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
     platform
   }, null, 2) + '\n'))

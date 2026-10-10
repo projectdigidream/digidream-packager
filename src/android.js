@@ -88,7 +88,7 @@ export async function stageTrees (zip, mod, opts, put, copyKit, to) {
   const built = new Date().toISOString().slice(0, 16).replace('T', ' ')
   put(to('assets/game/start.txt'), text(
     '# Written by the packager. Read by MainActivity at first launch.\n' +
-    `module=${id}\nmap=${map}\nstudio=${opts.studio ? 1 : 0}\nbuilt=${built}\n`))
+    `module=${id}\nmap=${map}\nstudio=${opts.studio ? 1 : 0}\nlog=${opts.log ? 1 : 0}\nbuilt=${built}\n`))
 
   return { art, gameFiles }
 }

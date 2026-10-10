@@ -88,6 +88,7 @@ for (const k of ['linux', 'windows']) {
     check(!names.has(`${dir}/electron.exe`), 'electron.exe is gone')
     const game = JSON.parse(new TextDecoder().decode(await z.get(`${APP}/game.json`).bytes()))
     check(game.modules?.[0] === mod.id && game.name === mod.name && game.studio === false, `game.json: ${JSON.stringify(game)}`)
+    check(game.log === false, 'CONTROL: no log file unless asked')
     const pkg = JSON.parse(new TextDecoder().decode(await z.get(`${APP}/package.json`).bytes()))
     check(pkg.main === 'app/main.js' && pkg.name === mod.id && pkg.type === 'module', `package.json: ${JSON.stringify(pkg)}`)
   }
