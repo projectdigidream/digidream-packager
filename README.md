@@ -13,6 +13,31 @@ packager/scripts/build_app_android.sh       # the packager as an Android app
 node packager/serve.js                      # or just the page: http://127.0.0.1:8950/
 ```
 
+**After an engine or studio change**, one script does the whole round:
+
+```sh
+packager/scripts/release_studio.sh               # every kit, then the studio for every platform
+packager/scripts/release_studio.sh --skip-kits   # the studios only, from the kits there are
+packager/scripts/release_studio.sh --kits "android macos-arm64"
+```
+
+1. **The kits** (`build_kits.sh`, all nine: Android, the four Electron desktops,
+   the four Tauri ones). They carry the engine and the studio's pages as they
+   are now, so this is what makes the packager -- and the studio's own Package
+   page -- build games with today's engine.
+2. **The studio for Android**: `engine/scripts/build_apk.sh --module starter
+   --studio`, with the same debug key and package id as every studio APK before,
+   so a phone updates in place and keeps its modules.
+3. **The studio for Linux, Windows, macOS arm64 and x64**
+   (`scripts/build_studio.mjs`): the packager's own builders, the starter module
+   with the studio switched on. Its data folder is `digidream-studio` (a game
+   built on `starter` would share one), its bundle id `com.digidream.studio`, and
+   the small kits go inside for its Package page.
+
+Everything lands in `packager/build/studio/`. It checks for Docker, the Android
+SDK, the map compiler and the vendored plugins before it starts, and warns of
+any kit that is not at `engine/VERSION`.
+
 | platform | what you get | state |
 |---|---|---|
 | Android | a signed APK, arm64 | **works**, verified on the emulator |
