@@ -132,8 +132,21 @@ fn start_server(game: &Path, conf: &serde_json::Value, port: u16) -> std::io::Re
     let module = tree.join("modules").join(id);
     let mut cmd = Command::new(&bin);
     cmd.arg("--port").arg(port.to_string()).arg("--module").arg(&module);
+    // The whole module: the chosen map first (where players start), then every
+    // other .dnpm, in name order. Given only the first, the server hosts only
+    // that one, and a graph going to another map (change_map) is refused --
+    // the game dies starting.
     if let Some(map) = conf["map"].as_str() {
-        cmd.arg("--map").arg(module.join("maps").join(map)).arg("--spawn").arg("start");
+        cmd.arg("--map").arg(module.join("maps").join(map));
+        let mut others: Vec<std::path::PathBuf> = std::fs::read_dir(module.join("maps"))
+            .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path())
+                .filter(|p| p.extension().map_or(false, |x| x == "dnpm")
+                    && p.file_name().map_or(false, |n| n != map))
+                .collect())
+            .unwrap_or_default();
+        others.sort();
+        for p in others.into_iter().take(63) { cmd.arg("--map").arg(p); }
+        cmd.arg("--spawn").arg("start");
     }
     if let Some(dir) = state_dir(id) {
         cmd.arg("--state-dir").arg(dir);

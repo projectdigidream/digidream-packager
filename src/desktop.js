@@ -37,10 +37,14 @@ export async function addGameTree ({ zip, mod, opts, APP, add, fromKit, platform
   // What this game IS (build_app.sh "what this app IS"), and the package
   // Electron reads -- its name is also the user-data folder, so two games
   // keep two sets of saves.
+  // The map it starts on: the one chosen, else the module's first, as the
+  // Android and Tauri builds do (the shell passes it first, then the rest).
+  const map = opts.map && mod.maps.includes(opts.map) ? opts.map : mod.maps[0]
   add(`${APP}/game.json`, enc.encode(JSON.stringify({
     name: opts.label,
     id,
     modules: [id],
+    ...(map ? { map } : {}),
     studio: !!opts.studio,
     builtAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
     platform
