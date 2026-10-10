@@ -17,7 +17,7 @@
 #      place and keeps its modules);
 #    - Linux, Windows, macOS arm64 and x64: build_studio.mjs, the packager's
 #      own builders with the studio switched on.
-#    Everything lands in packager/build/studio/.
+#    Everything lands in builds/, at the repository's root (not in git).
 #
 # Needs: the Android SDK + NDK; Docker (the Linux and Windows servers and the
 # Tauri runners are built in containers); Rust with the macOS targets (the
@@ -27,7 +27,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
-OUT="$HERE/build/studio"
+OUT="$REPO/builds"
 ALL_KITS="android linux windows macos-arm64 macos-x64 tauri-macos-arm64 tauri-macos-x64 tauri-linux tauri-windows"
 
 KITS="$ALL_KITS"

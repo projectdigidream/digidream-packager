@@ -24,7 +24,7 @@
 // key and package id as every studio APK before, so a phone updates in place
 // and keeps its modules (a packager-signed APK would be a different app).
 //
-// Output: packager/build/studio/Digidream Studio-<platform>.{tar.gz,zip}.
+// Output: builds/Digidream Studio-<platform>.{tar.gz,zip}, at the repository's root.
 
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { join, dirname, relative } from 'node:path'
@@ -38,7 +38,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const PKG = join(HERE, '..')
 const REPO = join(PKG, '..')
 const KITS = join(PKG, 'build', 'kits')
-const OUT = join(PKG, 'build', 'studio')
+const OUT = join(REPO, 'builds')
 mkdirSync(OUT, { recursive: true })
 
 const LABEL = 'Digidream Studio'

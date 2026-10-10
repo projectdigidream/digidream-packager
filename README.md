@@ -34,7 +34,7 @@ packager/scripts/release_studio.sh --kits "android macos-arm64"
    built on `starter` would share one), its bundle id `com.digidream.studio`, and
    the small kits go inside for its Package page.
 
-Everything lands in `packager/build/studio/`. It checks for Docker, the Android
+Everything lands in `builds/` at the repository's root (not in git). It checks for Docker, the Android
 SDK, the map compiler and the vendored plugins before it starts, and warns of
 any kit that is not at `engine/VERSION`.
 
