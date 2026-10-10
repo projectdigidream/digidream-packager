@@ -188,6 +188,15 @@ fn close(link: tauri::State<'_, Arc<Link>>) {
     }
 }
 
+/// The game asked to quit (a main menu's "Quit": SCREEN_SET's `quit`,
+/// docs/protocol.md). Exiting runs RunEvent::Exit below, which stops the
+/// game server.
+#[tauri::command]
+fn quit(app: tauri::AppHandle) {
+    println!("[runner] the game asked to quit");
+    app.exit(0);
+}
+
 #[tauri::command]
 fn log(line: String) {
     println!("[page] {line}");
@@ -215,7 +224,7 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(link.clone())
         .register_uri_scheme_protocol("game", move |_ctx, req| serve(&web, req.uri().path()))
-        .invoke_handler(tauri::generate_handler![up, close, log])
+        .invoke_handler(tauri::generate_handler![up, close, log, quit])
         .setup(move |app| {
             // The page's origin: game://localhost on macOS and Linux; WebView2
             // maps a custom scheme to http://game.localhost.

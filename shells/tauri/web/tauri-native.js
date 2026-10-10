@@ -1,6 +1,6 @@
 // The Tauri runner's half of `window.dnpNative`, the native seam the engine's
 // shared shell.js (engine/shells/android/web/shell.js) is written against --
-// the same three calls the Android and iOS shells provide. The packager puts
+// the same calls the Android shell provides (and quit, which iOS leaves out). The packager puts
 // this in front of shell.js. The answers come back the same way too:
 // window.__dnpDown(base64) and window.__dnpClosed(reason), from the runner.
 //
@@ -15,6 +15,8 @@
   window.dnpNative = {
     up: (b64) => { invoke('up', { data: b64 }).catch((e) => log('up failed: ' + (e && e.message || e))) },
     close: () => { invoke('close').catch(() => {}) },
+    // A main menu's "Quit" (SCREEN_SET `quit`): the runner exits.
+    quit: () => { invoke('quit').catch((e) => log('quit failed: ' + (e && e.message || e))) },
     log
   }
   window.addEventListener('error', (e) => log('error: ' + e.message + ' at ' + e.filename + ':' + e.lineno))
