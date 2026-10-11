@@ -232,7 +232,12 @@ fn main() {
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::CustomProtocol(url.parse().unwrap()))
                 .title(&title)
                 .inner_size(1280.0, 800.0)
+                .focused(true)
                 .build()?;
+            // FOCUSED FROM THE START, the page as well as the window: WebKit
+            // refuses pointer lock ("requires window to have focus") to a page
+            // without it, and a first-person game asks on the first click.
+            let _ = window.set_focus();
 
             // The link: connect (the server needs a moment to load its maps),
             // flush what the page already sent, then hand every read to the page
