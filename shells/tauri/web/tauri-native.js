@@ -17,6 +17,9 @@
     close: () => { invoke('close').catch(() => {}) },
     // A main menu's "Quit" (SCREEN_SET `quit`): the runner exits.
     quit: () => { invoke('quit').catch((e) => log('quit failed: ' + (e && e.message || e))) },
+    // The window and its web view focused, natively (pointer lock needs it on
+    // macOS, and window.focus() cannot do it from inside a WKWebView).
+    focus: () => { invoke('focus').catch((e) => log('focus failed: ' + (e && e.message || e))) },
     log
   }
   window.addEventListener('error', (e) => log('error: ' + e.message + ' at ' + e.filename + ':' + e.lineno))

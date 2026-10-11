@@ -197,6 +197,18 @@ fn quit(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// FOCUS, the window and the web view in it (the view as the window's first
+/// responder). WebKit grants pointer lock only to a page whose window has
+/// focus, and after a cutscene on macOS it can have lost it with nothing in the
+/// page able to get it back -- window.focus() does nothing in a WKWebView. The
+/// page asks for this before it asks for the pointer (engine client main.js).
+#[tauri::command]
+fn focus(window: tauri::WebviewWindow) {
+    let _ = window.set_focus();
+    let view: &tauri::Webview = window.as_ref();
+    let _ = view.set_focus();
+}
+
 #[tauri::command]
 fn log(line: String) {
     println!("[page] {line}");
@@ -224,7 +236,7 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(link.clone())
         .register_uri_scheme_protocol("game", move |_ctx, req| serve(&web, req.uri().path()))
-        .invoke_handler(tauri::generate_handler![up, close, log, quit])
+        .invoke_handler(tauri::generate_handler![up, close, log, quit, focus])
         .setup(move |app| {
             // The page's origin: game://localhost on macOS and Linux; WebView2
             // maps a custom scheme to http://game.localhost.
@@ -238,6 +250,8 @@ fn main() {
             // refuses pointer lock ("requires window to have focus") to a page
             // without it, and a first-person game asks on the first click.
             let _ = window.set_focus();
+            let view: &tauri::Webview = window.as_ref();
+            let _ = view.set_focus();
 
             // The link: connect (the server needs a moment to load its maps),
             // flush what the page already sent, then hand every read to the page
