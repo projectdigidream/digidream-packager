@@ -19,7 +19,8 @@
     quit: () => { invoke('quit').catch((e) => log('quit failed: ' + (e && e.message || e))) },
     // The window and its web view focused, natively (pointer lock needs it on
     // macOS, and window.focus() cannot do it from inside a WKWebView).
-    focus: () => { invoke('focus').catch((e) => log('focus failed: ' + (e && e.message || e))) },
+    // Resolves with what the runner saw: "window focused -> focused".
+    focus: () => invoke('focus').catch((e) => { log('focus failed: ' + (e && e.message || e)); return 'focus failed' }),
     log
   }
   window.addEventListener('error', (e) => log('error: ' + e.message + ' at ' + e.filename + ':' + e.lineno))

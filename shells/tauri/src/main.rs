@@ -203,10 +203,15 @@ fn quit(app: tauri::AppHandle) {
 /// page able to get it back -- window.focus() does nothing in a WKWebView. The
 /// page asks for this before it asks for the pointer (engine client main.js).
 #[tauri::command]
-fn focus(window: tauri::WebviewWindow) {
+fn focus(window: tauri::WebviewWindow) -> String {
+    let before = window.is_focused().unwrap_or(false);
     let _ = window.set_focus();
     let view: &tauri::Webview = window.as_ref();
     let _ = view.set_focus();
+    let after = window.is_focused().unwrap_or(false);
+    // What the page shows when the lock is still refused, so a report says
+    // which layer had lost focus.
+    format!("window {} -> {}", if before { "focused" } else { "not focused" }, if after { "focused" } else { "not focused" })
 }
 
 #[tauri::command]
