@@ -17,9 +17,10 @@ serde_json = "1"
 base64 = "0.22"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Only for the focus command's first-responder reset; the version tauri
-# already links.
+# Only for the focus command's first-responder reset and granting pointer
+# lock (main.rs); the versions tauri already links.
 objc2 = "0.6"
+block2 = "0.6"
 
 [profile.release]
 opt-level = "s"

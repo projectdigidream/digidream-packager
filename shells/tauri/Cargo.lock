@@ -581,6 +581,7 @@ name = "digidream-runner"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "objc2",
  "serde_json",
  "tauri",

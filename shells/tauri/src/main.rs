@@ -265,6 +265,40 @@ fn reseat_responder(window: &tauri::WebviewWindow) -> String {
     rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap_or_else(|_| "AppKit did not answer".into())
 }
 
+/// POINTER LOCK IN A WKWebView is the app's to grant: WebKit asks the web
+/// view's UI delegate (the private `_webViewDidRequestPointerLock:
+/// completionHandler:`) and, if the delegate has no such method, refuses --
+/// with "Pointer lock requires the window to have focus.", whatever the focus.
+/// wry's delegate has none, so a first-person game could never take the mouse.
+/// This adds it to the delegate's class, answering yes, and sets the delegate
+/// again: WebKit notes which methods a delegate has only when it is set.
+#[cfg(target_os = "macos")]
+fn allow_pointer_lock(window: &tauri::WebviewWindow) {
+    use objc2::runtime::{AnyObject, Bool, Imp, Sel};
+    use objc2::{ffi, msg_send, sel};
+
+    unsafe extern "C-unwind" fn did_request(_this: *mut AnyObject, _cmd: Sel, _view: *mut AnyObject, done: *mut block2::Block<dyn Fn(Bool)>) {
+        println!("[runner] pointer lock: granted");
+        if let Some(done) = unsafe { done.as_ref() } { done.call((Bool::YES,)); }
+    }
+    unsafe extern "C-unwind" fn did_lose(_this: *mut AnyObject, _cmd: Sel, _view: *mut AnyObject) {
+        println!("[runner] pointer lock: released");
+    }
+
+    let _ = window.with_webview(|wv| unsafe {
+        let view = wv.inner() as *mut AnyObject;
+        let delegate: *mut AnyObject = msg_send![view, UIDelegate];
+        if delegate.is_null() { println!("[runner] pointer lock: the web view has no UI delegate"); return }
+        let class = (*delegate).class() as *const _ as *mut objc2::runtime::AnyClass;
+        let request = sel!(_webViewDidRequestPointerLock:completionHandler:);
+        let added = ffi::class_addMethod(class, request, std::mem::transmute::<_, Imp>(did_request as unsafe extern "C-unwind" fn(_, _, _, _)), c"v@:@@?".as_ptr());
+        let _ = ffi::class_addMethod(class, sel!(_webViewDidLosePointerLock:), std::mem::transmute::<_, Imp>(did_lose as unsafe extern "C-unwind" fn(_, _, _)), c"v@:@".as_ptr());
+        let _: () = msg_send![view, setUIDelegate: std::ptr::null_mut::<AnyObject>()];
+        let _: () = msg_send![view, setUIDelegate: delegate];
+        println!("[runner] pointer lock: delegate {} it", if added.as_bool() { "taught" } else { "already had" });
+    });
+}
+
 #[tauri::command]
 fn log(line: String) {
     println!("[page] {line}");
@@ -308,6 +342,8 @@ fn main() {
             let _ = window.set_focus();
             let view: &tauri::Webview = window.as_ref();
             let _ = view.set_focus();
+            #[cfg(target_os = "macos")]
+            allow_pointer_lock(&window);
 
             // The link: connect (the server needs a moment to load its maps),
             // flush what the page already sent, then hand every read to the page
