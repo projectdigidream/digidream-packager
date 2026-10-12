@@ -203,7 +203,7 @@ fn quit(app: tauri::AppHandle) {
 /// page able to get it back -- window.focus() does nothing in a WKWebView. The
 /// page asks for this before it asks for the pointer (engine client main.js).
 #[tauri::command]
-fn focus(window: tauri::WebviewWindow) -> String {
+async fn focus(window: tauri::WebviewWindow) -> String {
     let before = window.is_focused().unwrap_or(false);
     let _ = window.set_focus();
     let view: &tauri::Webview = window.as_ref();
@@ -211,7 +211,58 @@ fn focus(window: tauri::WebviewWindow) -> String {
     let after = window.is_focused().unwrap_or(false);
     // What the page shows when the lock is still refused, so a report says
     // which layer had lost focus.
-    format!("window {} -> {}", if before { "focused" } else { "not focused" }, if after { "focused" } else { "not focused" })
+    let mut said = format!("window {} -> {}", if before { "focused" } else { "not focused" }, if after { "focused" } else { "not focused" });
+    #[cfg(target_os = "macos")]
+    {
+        said.push_str("; ");
+        said.push_str(&reseat_responder(&window));
+    }
+    println!("[runner] focus: {said}");
+    said
+}
+
+/// AppKit's own view of focus, and a nudge WebKit cannot miss. WebKit keeps
+/// its "focused" and "window active" flags (which pointer lock checks) in the
+/// web process and updates them when the window's first responder or key state
+/// CHANGES; set_focus() on a view that already is the first responder changes
+/// nothing, so a stale flag stays stale. Resigning the responder and taking it
+/// back is a change. Runs on the main thread (AppKit's rule), so the command
+/// is async and waits for the answer here.
+#[cfg(target_os = "macos")]
+fn reseat_responder(window: &tauri::WebviewWindow) -> String {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    let (tx, rx) = std::sync::mpsc::channel();
+    let posted = window.with_webview(move |wv| unsafe {
+        let view = wv.inner() as *mut AnyObject;
+        let win = wv.ns_window() as *mut AnyObject;
+        let name = |o: *mut AnyObject| -> String {
+            if o.is_null() { return "none".into() }
+            if o == view { return "the web view".into() }
+            (*o).class().name().to_string_lossy().into_owned()
+        };
+        let app: *mut AnyObject = match AnyClass::get(c"NSApplication") {
+            Some(c) => msg_send![c, sharedApplication],
+            None => std::ptr::null_mut(),
+        };
+        let active: bool = if app.is_null() { false } else { msg_send![app, isActive] };
+        let key: bool = msg_send![win, isKeyWindow];
+        let first: *mut AnyObject = msg_send![win, firstResponder];
+        let was = name(first);
+        if !active && !app.is_null() {
+            let _: () = msg_send![app, activateIgnoringOtherApps: true];
+        }
+        let _: () = msg_send![win, makeKeyAndOrderFront: std::ptr::null_mut::<AnyObject>()];
+        let _: bool = msg_send![win, makeFirstResponder: std::ptr::null_mut::<AnyObject>()];
+        let _: bool = msg_send![win, makeFirstResponder: view];
+        let now: *mut AnyObject = msg_send![win, firstResponder];
+        let _ = tx.send(format!(
+            "app {}, key window {}, responder {} -> {}",
+            if active { "active" } else { "inactive" }, key, was, name(now)
+        ));
+    });
+    if posted.is_err() { return "no web view".into() }
+    rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap_or_else(|_| "AppKit did not answer".into())
 }
 
 #[tauri::command]
