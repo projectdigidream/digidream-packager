@@ -146,14 +146,22 @@ EOF
 # --- the desktop servers, in containers ------------------------------------------
 
 DOCKER_READY=0
+# An image that is there, asked for again a few seconds apart: Docker Desktop
+# waking from its resource saver can fail the first command, and treating
+# that as "no image" rebuilt the whole image (apt, minutes, a network).
+have_image() {
+  local i
+  for i in 1 2 3 4 5; do docker image inspect "$1" >/dev/null 2>&1 && return 0; sleep 3; done
+  return 1
+}
 docker_ready() {
   [[ $DOCKER_READY -eq 1 ]] && return
   command -v docker >/dev/null && docker info >/dev/null 2>&1 || {
     echo "[kit] the Linux and Windows kits build their servers in Docker, which is not running" >&2; exit 2; }
   local d="$HERE/scripts/docker"
-  docker image inspect digidream-kit-servers >/dev/null 2>&1 ||
+  have_image digidream-kit-servers ||
     docker build --platform linux/amd64 -t digidream-kit-servers -f "$d/Dockerfile" "$d" | tail -1
-  docker image inspect digidream-kit-test >/dev/null 2>&1 ||
+  have_image digidream-kit-test ||
     docker build --platform linux/amd64 -t digidream-kit-test -f "$d/Dockerfile.test" "$d" | tail -1
   DOCKER_READY=1
 }
@@ -452,7 +460,7 @@ kit_tauri_macos() {
 kit_tauri_docker() {
   local os="$1" runner server
   docker_ready
-  docker image inspect digidream-kit-tauri >/dev/null 2>&1 ||
+  have_image digidream-kit-tauri ||
     docker build --platform linux/amd64 -t digidream-kit-tauri -f "$HERE/scripts/docker/Dockerfile.tauri" "$HERE/scripts/docker" | tail -1
   build_server "$os"
   check_trace "$os"
