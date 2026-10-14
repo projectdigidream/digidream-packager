@@ -74,14 +74,13 @@ make_tmpmod() {
   # Any baked map will do -- the module is thrown away. The smallest one the
   # engine's own test bake leaves, or a fresh bake of a small test map.
   mkdir -p "$moddir/maps"
-  local arch; arch="$(uname -m)"; [[ "$arch" == "x86_64" ]] || arch=arm64
-  local src="$ENGINE/build/$arch/level_a.dnpm"
-  if [[ ! -f "$src" ]]; then
-    [[ -x "$ENGINE/build/$arch/mapc" ]] || { echo "[kit] no mapc: run engine/scripts/build_native.sh" >&2; exit 2; }
-    "$ENGINE/build/$arch/mapc" "$ENGINE/maps/level_a.map" "$moddir/maps/kit.dnpm" >/dev/null
-  else
-    cp "$src" "$moddir/maps/kit.dnpm"
-  fi
+  # The starter module's own baked map: it ships with the engine and needs
+  # nothing but the engine (the engine's test maps load private fixtures).
+  # Any baked map will do (the module is thrown away): the starter module's
+  # own, which ships with the engine and needs nothing else.
+  local src="$ENGINE/modules/starter/maps/first.dnpm"
+  [[ -f "$src" ]] || { echo "[kit] no $src (the starter module ships with the engine)" >&2; exit 2; }
+  cp "$src" "$moddir/maps/kit.dnpm"
   # build_app.sh reads the name out of module.txt and, under set -e, dies
   # without a word when the file is missing.
   printf 'name Packager kit\n' > "$moddir/module.txt"
