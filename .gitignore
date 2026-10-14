@@ -4,6 +4,9 @@
 build/
 builds/
 dist/
+# ...except the Tauri runner's placeholder page, which tauri.conf.json's
+# frontendDist requires (the runner loads the game's own pages at run time).
+!/shells/tauri/dist/
 node_modules/
 .cache/
 *.o
