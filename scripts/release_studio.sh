@@ -97,10 +97,15 @@ echo "[release] 2/3 the studio for Android"
 mkdir -p "$OUT"
 "$REPO/engine/scripts/build_apk.sh" --module starter --studio --icon | grep -E '^\[apk\] (studio|assets|/)' | sed 's/^/        /'
 cp "$REPO/engine/build/android/digidream-starter.apk" "$OUT/Digidream Studio-android.apk"
+# And without its bundled plugins (build_apk.sh --no-plugins): the same app id,
+# so a phone has one or the other.
+"$REPO/engine/scripts/build_apk.sh" --module starter --studio --icon --no-plugins | grep -E '^\[apk\] (studio|assets|/)' | sed 's/^/        /'
+cp "$REPO/engine/build/android/digidream-starter.apk" "$OUT/Digidream Studio (no plugins)-android.apk"
 
 # --- 3. the desktop studios --------------------------------------------------------
 echo "[release] 3/3 the studio for Linux, Windows and macOS"
 node "$HERE/scripts/build_studio.mjs"
+node "$HERE/scripts/build_studio.mjs" --no-plugins
 
 echo "[release] done in $(( (SECONDS - T0) / 60 )) min -- engine $ENGINE_VERSION, studio $STUDIO_VERSION:"
 (cd "$OUT" && for f in *; do printf "        %-40s %s\n" "$f" "$(du -h "$f" | cut -f1)"; done)

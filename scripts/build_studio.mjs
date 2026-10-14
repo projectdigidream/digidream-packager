@@ -50,7 +50,10 @@ const ENGINE = readFileSync(join(REPO, 'engine', 'VERSION'), 'utf8').trim()
 const SMALL_KITS = ['android', 'tauri-macos-arm64', 'tauri-macos-x64', 'tauri-linux', 'tauri-windows']
 const enc = new TextEncoder()
 
-const want = process.argv.slice(2)
+// --no-plugins: the studio without its bundled plugins -- an empty plugin
+// index, and none of the packager's kits (only its plugin uses them).
+const NO_PLUGINS = process.argv.includes('--no-plugins')
+const want = process.argv.slice(2).filter((a) => !a.startsWith('--'))
 const all = ['linux', 'windows', 'macos-arm64', 'macos-x64']
 const targets = (want.length ? want : all).filter((t) => {
   if (existsSync(join(KITS, `${t}.zip`))) return true
@@ -76,7 +79,7 @@ const mod = await moduleFromEntries(walk(join(REPO, 'modules', 'starter')).map((
 // into: a studio whose Package page builds with an older engine than it runs
 // is a studio that makes games it cannot play.
 const smallKits = []
-for (const k of SMALL_KITS) {
+for (const k of NO_PLUGINS ? [] : SMALL_KITS) {
   const f = join(KITS, `${k}.zip`)
   if (!existsSync(f)) { console.log(`[studio] no ${k} kit: the Package page will not have it`); continue }
   smallKits.push({ k, bytes: new Uint8Array(readFileSync(f)), engine: (await readKit(new Uint8Array(readFileSync(f)))).info.engine })
@@ -85,13 +88,17 @@ for (const k of SMALL_KITS) {
 // The game tree, with the studio's own name and its packager's kits.
 const tree = (engine) => async (ctx) => {
   const add = (p, data, mode) => {
+    if (NO_PLUGINS && p.startsWith(`${ctx.APP}/studio/plugins/`)) return
     if (p === `${ctx.APP}/package.json`) {
       const pj = JSON.parse(new TextDecoder().decode(data))
       data = enc.encode(JSON.stringify({ ...pj, name: NAME, productName: LABEL, version: VERSION }, null, 2) + '\n')
     }
     return mode === undefined ? ctx.add(p, data) : ctx.add(p, data, mode)
   }
-  const n = await addGameTree({ ...ctx, add })
+  // The studio's pages come from the kit (fromKit); without plugins, its plugins stay out.
+  const fromKit = (p, e) => (NO_PLUGINS && p.startsWith(`${ctx.APP}/studio/plugins/`) ? undefined : ctx.fromKit(p, e))
+  const n = await addGameTree({ ...ctx, add, fromKit })
+  if (NO_PLUGINS) ctx.add(`${ctx.APP}/studio/plugins/index.json`, enc.encode('{ "plugins": [] }\n'))
   let k = 0
   for (const s of smallKits) {
     if (s.engine !== engine) { console.log(`        NOT bundling ${s.k}: engine ${s.engine}, this kit is ${engine}`); continue }
@@ -113,7 +120,7 @@ for (const t of targets) {
     const { blob, filename } = kit.info.kit === 'macos'
       ? await buildMac(kit, mod, { ...opts, bundleId: BUNDLE_ID }, log)
       : await buildDesktop(kit, mod, opts, log)
-    const out = join(OUT, filename)
+    const out = join(OUT, NO_PLUGINS ? filename.replace(LABEL, `${LABEL} (no plugins)`) : filename)
     writeFileSync(out, new Uint8Array(await blob.arrayBuffer()))
     console.log(`[studio] ${t}  ${relative(REPO, out)}  (${(blob.size / 1048576).toFixed(0)} MB)`)
   } catch (e) {
