@@ -14,6 +14,7 @@ import { buildTauri } from './tauri.js'
 import { readKit } from './kit.js'
 import { host } from './host.js'
 import { listKits, putKit, getKitBytes, removeKit } from './kitstore.js'
+import { releaseKits, megabytes, RELEASES_PAGE } from './releases.js'
 import { loadIdentity, newIdentity, backupJson, restoreJson } from './keys.js'
 import { fingerprint } from './x509.js'
 import { adaptiveIcon, squareIcon, macIcon } from './icon.js'
@@ -174,13 +175,14 @@ const available = (t) => kitsNeeded(t).length > 0 && kitsNeeded(t).every(hasKit)
 function drawTargets () {
   $('targets').innerHTML = TARGETS.map((t) => {
     const have = available(t)
-    const sub = have ? `${t.out}${usesTauri(t) ? ', Tauri' : ''}` : (t.why ?? (usesTauri(t) ? 'no Tauri kit' : 'no kit'))
+    const sub = have ? `${t.out}${usesTauri(t) ? ', Tauri' : ''}` : (t.why ?? (usesTauri(t) ? 'no Tauri kit yet: pick to get it' : 'no kit yet: pick to get it'))
     return `<button class="target" data-id="${t.id}" aria-pressed="${state.target === t.id}">
       <b>${t.name}</b><small>${esc(sub)}</small></button>`
   }).join('')
   for (const b of $('targets').querySelectorAll('.target')) {
     b.addEventListener('click', () => { state.target = b.dataset.id; drawTargets(); drawIcon(); refresh() })
   }
+  drawKitGet()
 }
 
 // Where a target's kit can come from, in order: this session, the kit store
@@ -218,6 +220,54 @@ async function probeKits () {
   refresh()
 }
 
+// ---- kits from the engine's releases ----------------------------------------------------
+
+$('kit-releases').href = RELEASES_PAGE
+// The latest engine release's kits, asked for once (a promise, so two draws share it).
+let releaseAsk = null
+const release = () => (releaseAsk ??= releaseKits().catch((e) => ({ error: e.message, kits: {} })))
+
+// For the chosen platform, a download button per kit it lacks.
+async function drawKitGet () {
+  const t = TARGETS.find((x) => x.id === state.target)
+  const lacking = kitsNeeded(t).filter((n) => !hasKit(n))
+  const box = $('kit-get')
+  if (!lacking.length) { box.innerHTML = ''; return }
+  box.textContent = 'Looking for the kit in the engine\'s releases…'
+  const rel = await release()
+  if (TARGETS.find((x) => x.id === state.target) !== t) return
+  if (rel.error) { box.innerHTML = `<span class="problem">${esc(rel.error)}</span> Download a kit from <a href="${RELEASES_PAGE}" target="_blank" rel="noopener">the engine's releases</a> and load it with "Load a kit file".`; return }
+  box.innerHTML = lacking.map((n) => {
+    const k = rel.kits[n]
+    return k ? `<button class="btn" data-get-kit="${esc(n)}">Download the ${esc(n)} kit (${megabytes(k.size)}, engine ${esc(rel.tag)})</button>`
+      : `<span class="problem">The engine release ${esc(rel.tag)} has no ${esc(n)} kit.</span>`
+  }).join(' ')
+  for (const b of box.querySelectorAll('[data-get-kit]')) b.addEventListener('click', () => getKit(b.dataset.getKit, rel))
+}
+
+async function getKit (name, rel) {
+  const k = rel.kits[name]
+  const box = $('kit-get')
+  // A browser tab cannot read the file (releases.js): the browser downloads it,
+  // and the user loads it. The desktop app fetches it here.
+  if (!host.download) {
+    const a = document.createElement('a')
+    a.href = k.url; a.target = '_blank'; a.rel = 'noopener'
+    a.click()
+    box.innerHTML = `Your browser is downloading <b>${esc(k.file)}</b> (${megabytes(k.size)}). When it is done, load it with "Load a kit file". ` +
+      `If nothing started, <a href="${esc(k.url)}" target="_blank" rel="noopener">download it here</a>.`
+    return
+  }
+  box.textContent = `Downloading the ${name} kit (${megabytes(k.size)})…`
+  try {
+    const bytes = await host.download(k.url)
+    const { name: stored } = await putKit(bytes)
+    state.kitsByStore[stored] = await readKit(bytes)
+    log(`the ${stored} kit, downloaded from engine ${rel.tag}`)
+    await probeKits()
+  } catch (e) { box.innerHTML = `<span class="problem">The ${esc(name)} kit could not be downloaded: ${esc(e.message)}</span>` }
+}
+
 // A kit by its store name: this session, the kit store, or bundled.
 async function kitByName (name, want) {
   if (state.kitsByStore[name]) return state.kitsByStore[name]
@@ -226,7 +276,7 @@ async function kitByName (name, want) {
   else {
     log(`fetching the ${name} kit`)
     const r = await fetch(`${host.kitsBase}${name}.zip`, { cache: 'no-store' })
-    if (!r.ok) throw new Error(`no ${name} kit (load one with "Load a kit file")`)
+    if (!r.ok) throw new Error(`no ${name} kit (download it under Platform, or load one with "Load a kit file")`)
     bytes = new Uint8Array(await r.arrayBuffer())
   }
   const kit = await readKit(bytes, want)

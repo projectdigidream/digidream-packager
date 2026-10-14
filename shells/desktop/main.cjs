@@ -61,6 +61,15 @@ app.whenReady().then(() => {
     return file
   })
 
+  // A kit from the engine's GitHub releases. Only from there: the page names
+  // the URL, and this is no general-purpose fetch for it.
+  ipcMain.handle('download', async (_e, url) => {
+    if (!/^https:\/\/github\.com\/projectdigidream\/digidream-engine\/releases\/download\//.test(url)) throw new Error('not a kit of the engine releases')
+    const r = await fetch(url)
+    if (!r.ok) throw new Error(`download failed (${r.status})`)
+    return new Uint8Array(await r.arrayBuffer())
+  })
+
   const win = new BrowserWindow({
     width: 860,
     height: 1000,

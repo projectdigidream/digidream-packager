@@ -26,6 +26,13 @@ export const host = {
 
   canInstall: !!shell?.install,
 
+  /**
+   * Download a URL's bytes the way the host can: the desktop app fetches it
+   * itself (no page rules apply there); null where the host cannot, and the
+   * page then hands the link to the browser (releases.js says why).
+   */
+  download: shell?.download ? (url) => shell.download(url) : null,
+
   /** The module the host has open, as a pack zip (Uint8Array), or null. */
   initialModule: shell?.module ?? null,
 
