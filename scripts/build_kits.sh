@@ -479,7 +479,9 @@ kit_tauri_docker() {
     runner="$target/release/digidream-runner"
     server="$SERVERS/linux-x64/dnp-server"
   fi
-  docker run --rm --platform linux/amd64 -v "$REPO":/src:ro -v "$target":/target -v dnp-cargo-registry:/opt/cargo/registry \
+  # cargo-xwin's Microsoft CRT and SDK in a volume too: downloaded once, not on
+  # every build (and a flaky network then cannot fail the Windows kit).
+  docker run --rm --platform linux/amd64 -v "$REPO":/src:ro -v "$target":/target -v dnp-cargo-registry:/opt/cargo/registry -v dnp-xwin-cache:/root/.cache/cargo-xwin \
     digidream-kit-tauri bash -c "$cmd" 2>&1 | grep -E '^(error|warning: unused)|Finished' | sed 's/^/        /'
   [[ -f "$runner" ]] || { echo "[kit] no runner at $runner" >&2; exit 1; }
   pack_tauri_kit "tauri-$os" "$os" x64 "$runner" "$server"
