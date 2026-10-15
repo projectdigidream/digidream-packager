@@ -49,6 +49,12 @@ async function describe (id, files) {
   const maps = [...files.keys()].filter((p) => /^maps\/[^/]+\.dnpm$/.test(p)).map((p) => p.slice(5)).sort()
   const sourceMaps = [...files.keys()].filter((p) => /^maps\/[^/]+\.map$/.test(p)).map((p) => p.slice(5)).sort()
   const bytes = [...files.values()].reduce((a, f) => a + (f.size || 0), 0)
+  // The map the module starts on, when the studio's document names one
+  // (its Settings, "starting map"): the map choice starts there.
+  let start = null
+  if (files.has('module.studio.json')) {
+    try { const sm = JSON.parse(new TextDecoder().decode(await files.get('module.studio.json').read())).startMap; if (sm && maps.includes(`${sm}.dnpm`)) start = `${sm}.dnpm` } catch {}
+  }
   return {
     id,
     files,
@@ -56,6 +62,7 @@ async function describe (id, files) {
     about,
     controls: field('controls') || null,
     maps,
+    start,
     sourceMaps,
     bytes,
     hasModuleTxt: files.has('module.txt'),

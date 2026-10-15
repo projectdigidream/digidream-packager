@@ -78,7 +78,10 @@ async function takeModule (load) {
     $('vname').value = saved?.versionName ?? '1.0'
     $('vcode').value = saved?.versionCode ? saved.versionCode + 1 : 1
     $('map').innerHTML = m.maps.map((x) => `<option>${esc(x)}</option>`).join('')
-    if (saved?.map && m.maps.includes(saved.map)) $('map').value = saved.map
+    // The module's own starting map (the studio's Settings) first; else the
+    // map the last build of it was told; else the first by name, as the game.
+    if (m.start) $('map').value = m.start
+    else if (saved?.map && m.maps.includes(saved.map)) $('map').value = saved.map
     // Game only unless asked: the studio is for making, and a module carrying
     // a studio document is still usually being shipped to players.
     $('studio').value = saved?.studio ? '1' : '0'
