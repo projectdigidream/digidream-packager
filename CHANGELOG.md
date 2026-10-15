@@ -5,6 +5,10 @@ land: anything not released yet is under **Unreleased**.
 
 ## Unreleased
 
+## 0.1.2 -- 2026-10-15
+
+Ships with engine 0.1.3's Android and Tauri kits.
+
 ### Changed
 
 - The map choice starts on the module's starting map when the studio's
