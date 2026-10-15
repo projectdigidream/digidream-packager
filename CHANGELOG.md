@@ -5,6 +5,15 @@ land: anything not released yet is under **Unreleased**.
 
 ## Unreleased
 
+### Fixed
+
+- **The studio's desktop builds carried the studio of their kits**:
+  `build_studio.mjs` took the studio's pages from the engine kit, which holds
+  the studio as it was when the kit was built, so studio 0.3.4.1 and 0.3.4.2,
+  released on the 0.1.5 kits, were 0.3.4 on Windows, Linux and macOS (their
+  APKs were right). The pages now come from the studio itself; the kit gives
+  only what the engine makes (the map compiler, the runtime Lua).
+
 ## 0.1.2 -- 2026-10-15
 
 Ships with engine 0.1.3's Android and Tauri kits.

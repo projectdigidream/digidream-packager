@@ -67,6 +67,7 @@ function walk (dir) {
   const out = []
   for (const n of readdirSync(dir)) {
     const p = join(dir, n)
+    if (n === '.DS_Store') continue
     if (statSync(p).isDirectory()) out.push(...walk(p)); else out.push(p)
   }
   return out
@@ -95,10 +96,22 @@ const tree = (engine) => async (ctx) => {
     }
     return mode === undefined ? ctx.add(p, data) : ctx.add(p, data, mode)
   }
-  // The studio's pages come from the kit (fromKit); without plugins, its plugins stay out.
-  const fromKit = (p, e) => (NO_PLUGINS && p.startsWith(`${ctx.APP}/studio/plugins/`) ? undefined : ctx.fromKit(p, e))
+  // THE STUDIO'S PAGES COME FROM THE STUDIO, not the kit. A kit holds the
+  // studio as it was when the kit was built, so a studio released on kits made
+  // earlier (--kits-from: 0.3.4.1 and 0.3.4.2 on the 0.1.5 kits) shipped the
+  // older studio's pages on the desktop while its APK had the new ones. From the
+  // kit only what the engine makes: the map compiler (wasm/), the runtime Lua
+  // (runtime/), the packager's kits.
+  const STUDIO = `${ctx.APP}/studio/`
+  const ownPaths = (p) => p.startsWith(STUDIO) && /^(index\.html|sw\.js|VERSION|src\/|vendor\/|plugins\/)/.test(p.slice(STUDIO.length))
+  const fromKit = (p, e) => (ownPaths(p) ? undefined : ctx.fromKit(p, e))
   const n = await addGameTree({ ...ctx, add, fromKit })
-  if (NO_PLUGINS) ctx.add(`${ctx.APP}/studio/plugins/index.json`, enc.encode('{ "plugins": [] }\n'))
+  const studio = join(REPO, 'studio')
+  for (const f of ['index.html', 'sw.js', 'VERSION']) add(`${STUDIO}${f}`, new Uint8Array(readFileSync(join(studio, f))))
+  for (const d of NO_PLUGINS ? ['src', 'vendor'] : ['src', 'vendor', 'plugins']) {
+    for (const f of walk(join(studio, d))) add(`${STUDIO}${relative(studio, f)}`, new Uint8Array(readFileSync(f)))
+  }
+  if (NO_PLUGINS) ctx.add(`${STUDIO}plugins/index.json`, enc.encode('{ "plugins": [] }\n'))
   let k = 0
   for (const s of smallKits) {
     if (s.engine !== engine) { console.log(`        NOT bundling ${s.k}: engine ${s.engine}, this kit is ${engine}`); continue }
