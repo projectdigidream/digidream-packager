@@ -57,6 +57,24 @@ TMPMOD="__packager_kit"
 list_files() { (cd "$1" && find . -type f | sed 's|^\./||' | LC_ALL=C sort); }
 json_list() { python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))'; }
 
+# --- the game's audio engines: required -------------------------------------------
+# A kit is every game built from it, so it must carry the music engine
+# (midisynth's dist/midisynth.mjs, which its worklet imports) and the sound
+# engine (sound's dist/dsound.mjs). Both are build output, not in git, and the
+# app and APK builds only WARN without them -- right for a developer's one-off
+# game, wrong for a kit: the 0.1.1 kits went out without either, and every
+# game built from them failed to load its audio worklets on the phone.
+for f in "$REPO/midisynth/tool/dist/midisynth.mjs" "$REPO/sound/tool/dist/dsound.mjs"; do
+  [[ -f "$f" ]] || { echo "[kit] no ${f#$REPO/}: build it first (its repo's scripts/build_wasm.sh); a kit without it is a game without audio" >&2; exit 2; }
+done
+# And afterwards, in the zip itself: the worklet's import beside it.
+assert_audio() {
+  local list; list="$(unzip -Z1 "$1" | grep -v '/plugins/')"
+  for want in 'synth/synth-worklet.js' 'synth/dist/midisynth.mjs' 'sfx/dsound.mjs'; do
+    grep -q "$want\$" <<<"$list" || { echo "[kit] $1 has no $want: its games would have no audio" >&2; exit 1; }
+  done
+}
+
 # --- the throwaway module ------------------------------------------------------
 # Global, not local: the EXIT trap runs after a function has returned, when a
 # local would already be gone (and `set -u` then kills the cleanup itself).
@@ -138,6 +156,7 @@ kit_android() {
 }
 EOF
   pack "$stage" "$OUT/android.zip"
+  assert_audio "$OUT/android.zip"
   rm -rf "$stage"; drop_tmpmod
   echo "[kit] android  $OUT/android.zip  ($(du -h "$OUT/android.zip" | cut -f1), engine $ENGINE_VERSION)"
 }
@@ -270,6 +289,7 @@ kit_desktop() {
 }
 EOF
   pack "$stage" "$OUT/$t.zip"
+  assert_audio "$OUT/$t.zip"
   rm -rf "$stage"
   echo "[kit] $t  $OUT/$t.zip  ($(du -h "$OUT/$t.zip" | cut -f1), engine $ENGINE_VERSION, electron $ELECTRON)"
 }
@@ -386,6 +406,7 @@ kit_macos() {
 EOF
   # -y: symlinks stay symlinks (a framework is made of them).
   rm -f "${OUT:?}/${t:?}.zip"; (cd "$stage" && zip -qryD "$OUT/$t.zip" . -x '*.DS_Store')
+  assert_audio "$OUT/$t.zip"
   rm -rf "${stage:?}"
   echo "[kit] $t  $OUT/$t.zip  ($(du -h "$OUT/$t.zip" | cut -f1), engine $ENGINE_VERSION, electron $ELECTRON)"
 }
