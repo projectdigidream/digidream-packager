@@ -7,6 +7,12 @@ land: anything not released yet is under **Unreleased**.
 
 ### Fixed
 
+- **A kit the app already carried was offered as a download**: the platform
+  box was drawn before the kits were looked for, waited on the engine's
+  releases, and, finishing last, put back the button the later draw had
+  cleared. In the Android studio that button then left the app for GitHub.
+  The newest draw now wins.
+
 - **The studio's desktop builds carried the studio of their kits**:
   `build_studio.mjs` took the studio's pages from the engine kit, which holds
   the studio as it was when the kit was built, so studio 0.3.4.1 and 0.3.4.2,

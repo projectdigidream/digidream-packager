@@ -231,14 +231,19 @@ let releaseAsk = null
 const release = () => (releaseAsk ??= releaseKits().catch((e) => ({ error: e.message, kits: {} })))
 
 // For the chosen platform, a download button per kit it lacks.
+// The newest draw is the one that counts: a draw made before the kits were
+// probed waits on the releases and, landing last, offered a kit the app
+// already carried (the Android studio's, whose button then left the app).
+let kitDraw = 0
 async function drawKitGet () {
+  const draw = ++kitDraw
   const t = TARGETS.find((x) => x.id === state.target)
   const lacking = kitsNeeded(t).filter((n) => !hasKit(n))
   const box = $('kit-get')
   if (!lacking.length) { box.innerHTML = ''; return }
   box.textContent = 'Looking for the kit in the engine\'s releases…'
   const rel = await release()
-  if (TARGETS.find((x) => x.id === state.target) !== t) return
+  if (draw !== kitDraw) return
   if (rel.error) { box.innerHTML = `<span class="problem">${esc(rel.error)}</span> Download a kit from <a href="${RELEASES_PAGE}" target="_blank" rel="noopener">the engine's releases</a> and load it with "Load a kit file".`; return }
   box.innerHTML = lacking.map((n) => {
     const k = rel.kits[n]
