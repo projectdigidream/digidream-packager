@@ -59,6 +59,10 @@ pre#log:empty { display: none; }
 .kit small { color: var(--dim); }
 .kit button { min-height: 24px; padding: 0 6px; border: 0; background: none; color: var(--dim); }
 body.desktop .android-only { display: none !important; }
+/* the sections numbered by what is shown: Signing key, hidden off Android, left 1, 2, 3, 5 */
+body { counter-reset: step; }
+section > h2 > .n { counter-increment: step; }
+section > h2 > .n::before { content: counter(step); }
 body.desktop:not(.mac) .id-field { display: none !important; }
 .icon-row { display: flex; gap: 14px; align-items: center; margin: 4px 0 10px; }
 .icon-prev { width: 72px; height: 72px; border-radius: 50%; overflow: hidden; flex: none;
@@ -79,7 +83,7 @@ body.desktop:not(.mac) .id-field { display: none !important; }
   </header>
 
   <section id="s-module">
-    <h2><span class="n">1</span> Module</h2>
+    <h2><span class="n"></span> Module</h2>
     <div class="row">
       <label class="btn">Open module .zip<input type="file" id="pick-zip" accept=".zip,application/zip"></label>
       <label class="btn" id="pick-dir-label">Open folder<input type="file" id="pick-dir" webkitdirectory multiple></label>
@@ -88,7 +92,7 @@ body.desktop:not(.mac) .id-field { display: none !important; }
   </section>
 
   <section id="s-target">
-    <h2><span class="n">2</span> Platform</h2>
+    <h2><span class="n"></span> Platform</h2>
     <div class="targets" id="targets"></div>
     <div class="row hidden" id="shell-row" style="margin-top:10px">
       <label class="f" style="margin:0;flex:1"><span>Desktop shell</span>
@@ -109,7 +113,7 @@ body.desktop:not(.mac) .id-field { display: none !important; }
   </section>
 
   <section id="s-details">
-    <h2><span class="n">3</span> The game</h2>
+    <h2><span class="n"></span> The game</h2>
     <div class="grid2">
       <label class="f"><span>Name</span><input type="text" id="label"></label>
       <label class="f id-field"><span>Package id (Android) / bundle id (macOS)</span><input type="text" id="pkg" autocapitalize="off" spellcheck="false"></label>
@@ -133,7 +137,7 @@ body.desktop:not(.mac) .id-field { display: none !important; }
   </section>
 
   <section id="s-key" class="android-only">
-    <h2><span class="n">4</span> Signing key</h2>
+    <h2><span class="n"></span> Signing key</h2>
     <div id="key-status" class="summary" style="margin-top:0">Loading…</div>
     <div class="row" style="margin-top:10px">
       <button id="key-new">New key</button>
@@ -144,7 +148,7 @@ body.desktop:not(.mac) .id-field { display: none !important; }
   </section>
 
   <section id="s-build">
-    <h2><span class="n">5</span> Build</h2>
+    <h2><span class="n"></span> Build</h2>
     <div class="row">
       <button class="primary" id="build" disabled>Build</button>
       <a class="btn hidden" id="download">Download</a>

@@ -12,6 +12,10 @@ land: anything not released yet is under **Unreleased**.
   releases, and, finishing last, put back the button the later draw had
   cleared. In the Android studio that button then left the app for GitHub.
   The newest draw now wins.
+- **The steps were numbered 1, 2, 3, 5** off Android, where "Signing key" is
+  hidden: they are numbered as shown.
+- **A macOS build's log said "fetching the android kit"** with no reason: it
+  says the game's pages in every Tauri build come from that kit.
 
 - **The studio's desktop builds carried the studio of their kits**:
   `build_studio.mjs` took the studio's pages from the engine kit, which holds

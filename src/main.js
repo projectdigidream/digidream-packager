@@ -282,7 +282,8 @@ async function kitByName (name, want) {
   let bytes = await getKitBytes(name)
   if (bytes) log(`the ${name} kit, from the kit store`)
   else {
-    log(`fetching the ${name} kit`)
+    // the Tauri builds take the game's pages from the android kit: said, or a macOS build seems to fetch the wrong one
+    log(`fetching the ${name} kit${name === 'android' && state.target !== 'android' ? ' (the game\'s pages in every Tauri build come from it)' : ''}`)
     const r = await fetch(`${host.kitsBase}${name}.zip`, { cache: 'no-store' })
     if (!r.ok) throw new Error(`no ${name} kit (download it under Platform, or load one with "Load a kit file")`)
     bytes = new Uint8Array(await r.arrayBuffer())
