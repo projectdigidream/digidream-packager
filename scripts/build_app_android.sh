@@ -80,9 +80,12 @@ XML
 cp "$OUT/res/drawable/ic_fg.xml" "$OUT/res/mipmap/ic_launcher.xml"
 
 VERSION="$(tr -d '[:space:]' < "$HERE/VERSION")"
-# versionCode from the version: 0.1.0 -> 100, 1.2.3 -> 10203.
-IFS=. read -r MA MI PA <<< "$VERSION"
-CODE=$(( 10#${MA:-0} * 10000 + 10#${MI:-0} * 100 + 10#${PA:-0} ))
+# versionCode from the version, with room for a dev release's fourth part (as
+# the studio's): 0.1.2 -> 10200, 0.1.2.1 -> 10201, 1.2.3 -> 1020300. Every code
+# is above the old three-part one (0.1.2 was 102), so an APK still installs
+# over the one before it.
+IFS=. read -r MA MI PA DV <<< "$VERSION"
+CODE=$(( 10#${MA:-0} * 1000000 + 10#${MI:-0} * 10000 + 10#${PA:-0} * 100 + 10#${DV:-0} ))
 
 echo "[app] android  resources and manifest (version $VERSION, code $CODE)"
 "$BT/aapt2" compile --dir "$OUT/res" -o "$OUT/res.zip" >/dev/null

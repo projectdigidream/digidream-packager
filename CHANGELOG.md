@@ -11,6 +11,12 @@ A development release (the dev branch), with engine 0.2.3.6's kits.
 
 ### Fixed
 
+- **A development version could not build the Android app**: its version code
+  was made from three parts, and a fourth (0.1.2.1) stopped the build. It has
+  room for the fourth now, and every new code is above the old ones.
+
+### Fixed
+
 - **A kit the app already carried was offered as a download**: the platform
   box was drawn before the kits were looked for, waited on the engine's
   releases, and, finishing last, put back the button the later draw had
