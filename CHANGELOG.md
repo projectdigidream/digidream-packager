@@ -5,6 +5,10 @@ land: anything not released yet is under **Unreleased**.
 
 ## Unreleased
 
+## 0.1.2.1 -- 2026-10-22
+
+A development release (the dev branch), with engine 0.2.3.6's kits.
+
 ### Fixed
 
 - **A kit the app already carried was offered as a download**: the platform
