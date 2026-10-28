@@ -5,6 +5,13 @@ land: anything not released yet is under **Unreleased**.
 
 ## Unreleased
 
+## 0.1.3 -- 2026-10-28
+
+The stable release of what the development release 0.1.2.1 brought, with engine
+0.2.4's kits: a development version builds Android apps again, a kit the app
+already carries is no longer offered as a download, and the steps are numbered
+as shown.
+
 ## 0.1.2.1 -- 2026-10-22
 
 A development release (the dev branch), with engine 0.2.3.6's kits.
