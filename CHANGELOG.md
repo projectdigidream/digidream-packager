@@ -5,6 +5,11 @@ land: anything not released yet is under **Unreleased**.
 
 ## Unreleased
 
+## 0.1.4 -- 2026-11-12
+
+Built with engine 0.2.5's kits, so the games it packages draw composite textures
+and have the automatic camera on a lead and its cone.
+
 ## 0.1.3 -- 2026-10-28
 
 The stable release of what the development release 0.1.2.1 brought, with engine
